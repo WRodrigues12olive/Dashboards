@@ -17,6 +17,8 @@ class OrdemDeServico(models.Model):
     # Datas Principais
     Data_Criacao_OS = models.DateTimeField(blank=True, null=True, verbose_name="Data de Criação OS")
     Data_Finalizacao_OS = models.DateTimeField(blank=True, null=True, verbose_name="Data de Finalização OS")
+    Data_Enviado_Verificacao = models.DateTimeField(blank=True, null=True, verbose_name="Data Enviado Verificação")
+    Data_Programada = models.DateTimeField(blank=True, null=True, verbose_name="Data Programada")
 
     # --- NOVOS CAMPOS DE DATA DE INÍCIO ---
     Data_Iniciou_OS = models.DateTimeField(blank=True, null=True, verbose_name="Data Iniciou OS")
@@ -41,7 +43,6 @@ class OrdemDeServico(models.Model):
     def __str__(self):
         return self.OS
 
-    # ... (Meta class e modelo Tarefa continuam iguais) ...
     class Meta:
         verbose_name = "Ordem de Serviço"
         verbose_name_plural = "Ordens de Serviço"

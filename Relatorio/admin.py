@@ -1,13 +1,35 @@
-# Em Relatorio/admin.py
-
 from django.contrib import admin
-from django.db.models import IntegerField
+from django.db.models import IntegerField, Sum
 from django.db.models.functions import Cast, Substr
 from .models import OrdemDeServico, Tarefa
 
 
+# Filtro personalizado que agrupa os locais pela empresa principal
+class LocalEmpresaFilter(admin.SimpleListFilter):
+    title = 'por Empresa Principal'
+    parameter_name = 'empresa'
+
+    def lookups(self, request, model_admin):
+        locais = OrdemDeServico.objects.exclude(Local_Empresa__isnull=True).exclude(Local_Empresa='').values_list(
+            'Local_Empresa', flat=True).distinct()
+
+        empresas = set()
+        for local in locais:
+            partes = [p.strip() for p in local.split('/') if p.strip()]
+            if partes:
+                empresas.add(partes[0])
+
+        return sorted([(empresa.lower(), empresa) for empresa in empresas])
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(Local_Empresa__icontains=self.value())
+        return queryset
+
+
 class TarefaInline(admin.TabularInline):
     model = Tarefa
+    # Adicionado 'Observacao' para visualização
     fields = ('id_tarefa_api', 'Ativo', 'Responsavel', 'Tipo_de_Tarefa', 'Duracao_Minutos', 'Status_da_Tarefa')
     readonly_fields = fields
     extra = 0
@@ -18,23 +40,22 @@ class TarefaInline(admin.TabularInline):
 class OrdemDeServicoAdmin(admin.ModelAdmin):
     inlines = [TarefaInline]
 
-    # Adicionado 'Local_Empresa'
-    list_display = ('numero_os_ordenavel', 'Status', 'Local_Empresa', 'Avanco_da_OS', 'Nivel_de_Criticidade',
-                    'Possui_Ticket')
+    list_display = ('numero_os_ordenavel', 'Status', 'Local_Empresa', 'Avanco_da_OS', 'Nivel_de_Criticidade', 'Possui_Ticket')
 
-    # Adicionado 'Local_Empresa' à busca
-    search_fields = ('OS', 'Criado_Por', 'Ticket_ID', 'Local_Empresa', 'tarefas__Ativo')
+    # Adicionado 'tarefas__Responsavel' para permitir a busca por técnico
+    search_fields = ('OS', 'Criado_Por', 'Ticket_ID', 'Local_Empresa', 'tarefas__Ativo', 'tarefas__Responsavel')
 
-    list_filter = ('Status', 'Nivel_de_Criticidade', 'Possui_Ticket', 'Ano_Criacao')
+    # Re-adicionado o filtro de empresa para melhor usabilidade, junto com o novo filtro de responsável
+    list_filter = ('Status', 'Nivel_de_Criticidade', 'Possui_Ticket', LocalEmpresaFilter, 'tarefas__Responsavel', 'Ano_Criacao')
 
-    # Adicionado 'Local_Empresa' à visualização de detalhes
+    # Completando a lista de campos readonly com os que foram adicionados
     readonly_fields = (
-        'OS', 'Status', 'Nivel_de_Criticidade', 'Criado_Por', 'Local_Empresa',
-        'Data_Criacao_OS', 'Data_Finalizacao_OS', 'duracao_total_calculada',
+        'OS', 'Status', 'Nivel_de_Criticidade', 'Criado_Por', 'Local_Empresa', 'Observacao_OS',
+        'Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS', 'Data_Enviado_Verificacao', 'Data_Programada',
+        'duracao_total_calculada',
         'Avanco_da_OS', 'Ticket_ID', 'Possui_Ticket'
     )
 
-    # As funções 'get_queryset', 'numero_os_ordenavel' e 'duracao_total_calculada' permanecem as mesmas
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         qs = qs.annotate(os_numero=Cast(Substr('OS', 3), output_field=IntegerField()))
@@ -46,9 +67,8 @@ class OrdemDeServicoAdmin(admin.ModelAdmin):
 
     @admin.display(description='Duração Total da OS (soma das tarefas)')
     def duracao_total_calculada(self, obj):
-        from django.db.models import Sum
         total_minutos = obj.tarefas.aggregate(soma_total=Sum('Duracao_Minutos'))['soma_total']
-        if total_minutos is None or total_minutos == 0: return "0 minutos"
+        if not total_minutos: return "0 minutos"
         horas, minutos = divmod(total_minutos, 60)
         return f"{int(horas)}h {int(minutos)}min"
 
