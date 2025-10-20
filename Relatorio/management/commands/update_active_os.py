@@ -21,15 +21,16 @@ class Command(BaseCommand):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Armazenamento seguro para o token em ambiente com threads
         self.token_storage = {'token': None, 'lock': threading.Lock()}
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **kwargs):
         self.stdout.write(self.style.SUCCESS("=" * 60))
         self.stdout.write(self.style.SUCCESS("🚀 INICIANDO ATUALIZAÇÃO DE OS ATIVAS 🚀"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
 
         try:
-            self._obter_token_acesso()
+            self._obter_token_acesso()  # Obtém o token inicial
 
             # 1. Busca no banco de dados local as OS que precisam de verificação
             os_para_verificar = OrdemDeServico.objects.filter(
@@ -131,37 +132,57 @@ class Command(BaseCommand):
         if not wo_folio or not id_tarefa_api:
             return
 
+        # --- Processa todas as datas, incluindo as novas ---
         data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
         data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
         data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
+        data_verificacao = self._parse_e_converter_datetime(item.get("review_date"))
+        data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))
         id_request = item.get("id_request")
 
         dados_os = {
             'Status': self._converter_status(item.get("id_status_work_order")),
             'Nivel_de_Criticidade': self._converter_criticidade(item.get("id_priorities")),
-            'Criado_Por': item.get("created_by"), 'Avanco_da_OS': item.get("completed_percentage"),
-            'Ticket_ID': id_request, 'Possui_Ticket': "Sim" if id_request is not None else "Não",
-            'Local_Empresa': item.get("parent_description"), 'Data_Criacao_OS': data_criacao,
+            'Criado_Por': item.get("created_by"),
+            'Avanco_da_OS': item.get("completed_percentage"),
+            'Ticket_ID': id_request,
+            'Possui_Ticket': "Sim" if id_request is not None else "Não",
+            'Local_Empresa': item.get("parent_description"),
+            'Observacao_OS': item.get("task_note"),
+
+            # Data de Criação
+            'Data_Criacao_OS': data_criacao,
             'Ano_Criacao': data_criacao.year if data_criacao else None,
             'Mes_Criacao': data_criacao.month if data_criacao else None,
             'Dia_Criacao': data_criacao.day if data_criacao else None,
             'Hora_Criacao': data_criacao.time() if data_criacao else None,
+
+            # Data de Finalização
             'Data_Finalizacao_OS': data_finalizacao,
             'Ano_Finalizacao': data_finalizacao.year if data_finalizacao else None,
             'Mes_Finalizacao': data_finalizacao.month if data_finalizacao else None,
             'Dia_Finalizacao': data_finalizacao.day if data_finalizacao else None,
-            'Hora_Finalizacao': data_finalizacao.time() if data_finalizacao else None, 'Data_Iniciou_OS': data_inicio,
+            'Hora_Finalizacao': data_finalizacao.time() if data_finalizacao else None,
+
+            # Data de Início
+            'Data_Iniciou_OS': data_inicio,
             'Ano_Inicio': data_inicio.year if data_inicio else None,
             'Mes_Inicio': data_inicio.month if data_inicio else None,
             'Dia_Inicio': data_inicio.day if data_inicio else None,
             'Hora_Inicio': data_inicio.time() if data_inicio else None,
+
+            # --- NOVOS CAMPOS DE DATA ---
+            'Data_Enviado_Verificacao': data_verificacao,
+            'Data_Programada': data_programada,
         }
         os_obj, _ = OrdemDeServico.objects.update_or_create(OS=wo_folio, defaults=dados_os)
 
         dados_tarefa = {
-            'ordem_de_servico': os_obj, 'Ativo': item.get("items_log_description"),
+            'ordem_de_servico': os_obj,
+            'Ativo': item.get("items_log_description"),
             'Responsavel': item.get("personnel_description"),
-            'Plano_de_Tarefas': item.get("description"), 'Tipo_de_Tarefa': item.get("tasks_log_task_type_main"),
+            'Plano_de_Tarefas': item.get("description"),
+            'Tipo_de_Tarefa': item.get("tasks_log_task_type_main"),
             'Duracao_Minutos': self._segundos_para_minutos(item.get("real_duration")),
             'Status_da_Tarefa': item.get("task_status"),
         }

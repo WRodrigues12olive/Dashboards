@@ -107,7 +107,6 @@ class Command(BaseCommand):
         importadas, nao_encontradas, com_erro = 0, 0, 0
         for res in resultados:
             if res['status'] == 'SUCCESS':
-                # --- INÍCIO DA CORREÇÃO ---
                 api_response_data = res.get('data')
 
                 if not api_response_data or not isinstance(api_response_data, dict):
@@ -116,7 +115,6 @@ class Command(BaseCommand):
                     com_erro += 1
                     continue
 
-                # Pega a lista de tarefas. Se for None, transforma em uma lista vazia `[]`
                 lista_de_tarefas = api_response_data.get('data') or []
 
                 if not lista_de_tarefas:
@@ -126,8 +124,6 @@ class Command(BaseCommand):
                     for item in lista_de_tarefas:
                         self._atualizar_db_com_item(item)
                     importadas += 1
-                # --- FIM DA CORREÇÃO ---
-
             elif res['status'] == '404':
                 nao_encontradas += 1
             else:
@@ -140,35 +136,47 @@ class Command(BaseCommand):
         self.stdout.write(f"  - {com_erro} OS falharam durante a busca ou tiveram resposta inválida.")
 
     def _atualizar_db_com_item(self, item):
-        # Esta função é idêntica à dos outros scripts, garantindo consistência
         wo_folio = item.get('wo_folio')
-        # ... (O resto desta função continua exatamente o mesmo)
         id_tarefa_api = item.get('id_work_orders_tasks')
         if not wo_folio or not id_tarefa_api: return
+
+        # --- Processa todas as datas ---
         data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
         data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
         data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
+        data_verificacao = self._parse_e_converter_datetime(item.get("review_date"))
+        data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))
         id_request = item.get("id_request")
+
         dados_os = {
             'Status': self._converter_status(item.get("id_status_work_order")),
             'Nivel_de_Criticidade': self._converter_criticidade(item.get("id_priorities")),
             'Criado_Por': item.get("created_by"), 'Avanco_da_OS': item.get("completed_percentage"),
             'Ticket_ID': id_request, 'Possui_Ticket': "Sim" if id_request is not None else "Não",
             'Local_Empresa': item.get("parent_description"), 'Observacao_OS': item.get("task_note"),
+
             'Data_Criacao_OS': data_criacao, 'Ano_Criacao': data_criacao.year if data_criacao else None,
             'Mes_Criacao': data_criacao.month if data_criacao else None,
             'Dia_Criacao': data_criacao.day if data_criacao else None,
-            'Hora_Criacao': data_criacao.time() if data_criacao else None, 'Data_Finalizacao_OS': data_finalizacao,
+            'Hora_Criacao': data_criacao.time() if data_criacao else None,
+
+            'Data_Finalizacao_OS': data_finalizacao,
             'Ano_Finalizacao': data_finalizacao.year if data_finalizacao else None,
             'Mes_Finalizacao': data_finalizacao.month if data_finalizacao else None,
             'Dia_Finalizacao': data_finalizacao.day if data_finalizacao else None,
             'Hora_Finalizacao': data_finalizacao.time() if data_finalizacao else None,
+
             'Data_Iniciou_OS': data_inicio, 'Ano_Inicio': data_inicio.year if data_inicio else None,
             'Mes_Inicio': data_inicio.month if data_inicio else None,
             'Dia_Inicio': data_inicio.day if data_inicio else None,
             'Hora_Inicio': data_inicio.time() if data_inicio else None,
+
+            # --- NOVOS CAMPOS DE DATA ADICIONADOS ---
+            'Data_Enviado_Verificacao': data_verificacao,
+            'Data_Programada': data_programada,
         }
         os_obj, _ = OrdemDeServico.objects.update_or_create(OS=wo_folio, defaults=dados_os)
+
         dados_tarefa = {
             'ordem_de_servico': os_obj, 'Ativo': item.get("items_log_description"),
             'Responsavel': item.get("personnel_description"), 'Plano_de_Tarefas': item.get("description"),
