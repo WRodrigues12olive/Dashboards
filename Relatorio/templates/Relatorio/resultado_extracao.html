@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load format_helpers %}
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
@@ -31,6 +32,13 @@
                             <th>Local/Empresa</th>
                             <th>Data Criação</th>
                             <th>Avanço (%)</th>
+                            {% if mostrar_tempo_em_status %}
+                                <th>{{ nome_coluna_tempo }}</th>
+                            {% endif %}
+                            {% if mostrar_tempos_conclusao %}
+                                <th>Tempo em Execução</th>
+                                <th>Tempo pra Conclusão</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -42,10 +50,17 @@
                             <td>{{ os.Local_Empresa }}</td>
                             <td>{{ os.Data_Criacao_OS|date:"d/m/Y H:i" }}</td>
                             <td>{{ os.Avanco_da_OS|default_if_none:"0" }}%</td>
+                            {% if mostrar_tempo_em_status %}
+                                <td>{{ os.tempo_em_status|format_timedelta }}</td>
+                            {% endif %}
+                            {% if mostrar_tempos_conclusao %}
+                                <td>{{ os.tempo_em_execucao|format_timedelta }}</td>
+                                <td>{{ os.tempo_em_verificacao|format_timedelta }}</td>
+                            {% endif %}
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="6" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
+                            <td colspan="8" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
