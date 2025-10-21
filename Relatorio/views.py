@@ -1,5 +1,7 @@
 from django.shortcuts import render
 from django.db.models import Count, F, Q
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.db.utils import OperationalError
 from django.db.models.functions import TruncMonth, ExtractWeek, Now
 from .models import OrdemDeServico, Tarefa
 from datetime import datetime, timedelta
@@ -141,6 +143,7 @@ def dashboard_view(request):
     end_date_str = request.GET.get('end_date', '')
     selected_local = request.GET.get('local_grupo', 'Todos')
 
+
     ordens_no_periodo = OrdemDeServico.objects.all()
 
     if start_date_str and end_date_str:
@@ -187,13 +190,27 @@ def dashboard_view(request):
     local_agrupado_labels = [item[0] for item in grupos_ordenados]
     local_agrupado_data = [item[1] for item in grupos_ordenados]
 
-    tarefas_no_periodo = Tarefa.objects.filter(ordem_de_servico__in=ordens_no_periodo).exclude(Plano_de_Tarefas__isnull=True).exclude(Plano_de_Tarefas__exact='')
-    contagem_grupo_tarefa = defaultdict(int)
-    for tarefa in tarefas_no_periodo:
-        grupo = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
-        contagem_grupo_tarefa[grupo] += 1
-    tarefa_grupo_labels = list(contagem_grupo_tarefa.keys())
-    tarefa_grupo_data = list(contagem_grupo_tarefa.values())
+    contagem_grupo_tarefa_os = defaultdict(int)
+    os_ids_no_periodo = ordens_no_periodo.values_list('id', flat=True)
+
+    tarefas_relevantes = Tarefa.objects.filter(
+        ordem_de_servico_id__in=os_ids_no_periodo
+    ).exclude(
+        Plano_de_Tarefas__isnull=True
+    ).exclude(
+        Plano_de_Tarefas__exact=''
+    ).select_related('ordem_de_servico')
+
+    os_categorizada = {}
+    for tarefa in tarefas_relevantes:
+        os_id = tarefa.ordem_de_servico_id
+        if os_id not in os_categorizada:
+            grupo = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
+            os_categorizada[os_id] = grupo
+            contagem_grupo_tarefa_os[grupo] += 1
+
+    tarefa_grupo_labels = list(contagem_grupo_tarefa_os.keys())
+    tarefa_grupo_data = list(contagem_grupo_tarefa_os.values())
 
 
 
@@ -370,8 +387,30 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
 
         elif tipo_relatorio == 'criticidade':
             base_queryset = base_queryset.filter(Nivel_de_Criticidade=categoria)
+
         elif tipo_relatorio == 'ticket':
             base_queryset = base_queryset.filter(Possui_Ticket=categoria)
+
+        elif tipo_relatorio == 'tipo_tarefa_os':
+            if categoria != 'todas':
+                os_ids_na_categoria = set()
+
+                tarefas = Tarefa.objects.filter(
+                    ordem_de_servico__in=base_queryset
+                ).exclude(
+                    Plano_de_Tarefas__isnull=True
+                ).exclude(
+                    Plano_de_Tarefas__exact=''
+                )
+
+                for tarefa in tarefas:
+                    grupo = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
+                    if grupo == categoria:
+                        os_ids_na_categoria.add(tarefa.ordem_de_servico_id)
+
+                base_queryset = base_queryset.filter(id__in=os_ids_na_categoria)
+
+
         elif tipo_relatorio == 'execucao':
             os_ativas = base_queryset.exclude(Status__in=['Concluído', 'Cancelado'])
             ids_com_tarefa_in_progress = set(Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list('ordem_de_servico_id', flat=True))
@@ -415,11 +454,31 @@ def resultado_view(request):
     categoria = request.GET.get('categoria')
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
+    page_number = request.GET.get('page', 1)
+
 
     dados_filtrados = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date)
+
+    if tipo_relatorio == 'tipo_tarefa_os' and dados_filtrados:
+        os_ids_na_lista = [os.id for os in dados_filtrados]
+
+        tarefas_para_categorizar = Tarefa.objects.filter(
+            ordem_de_servico_id__in=os_ids_na_lista
+        ).exclude(Plano_de_Tarefas__isnull=True).exclude(Plano_de_Tarefas__exact='')
+
+        mapa_os_categoria = {}
+        for tarefa in tarefas_para_categorizar:
+            os_id = tarefa.ordem_de_servico_id
+            if os_id not in mapa_os_categoria:
+                mapa_os_categoria[os_id] = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
+
+        for os in dados_filtrados:
+            os.categoria_tarefa = mapa_os_categoria.get(os.id, 'Não Categorizado')
+
     mostrar_tempo_em_status = (tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação'])
     mostrar_tempos_conclusao = (tipo_relatorio == 'status' and categoria == 'Concluído')
     nome_coluna_tempo = f"Tempo {categoria}" if mostrar_tempo_em_status else ""
+    mostrar_categoria_tarefa = (tipo_relatorio == 'tipo_tarefa_os')
 
     context = {
         'ordens_de_servico': dados_filtrados,
@@ -432,6 +491,7 @@ def resultado_view(request):
         'mostrar_tempo_em_status': mostrar_tempo_em_status,
         'mostrar_tempos_conclusao': mostrar_tempos_conclusao,
         'nome_coluna_tempo': nome_coluna_tempo,
+        'mostrar_categoria_tarefa': mostrar_categoria_tarefa,
     }
     return render(request, 'Relatorio/resultado_extracao.html', context)
 
@@ -523,5 +583,8 @@ def api_get_categorias_view(request):
     elif tipo_relatorio == 'locais_agrupados':
         categorias.extend(sorted([kw.title() for kw in KEYWORDS_LOCAIS]))
         categorias.append('Outros')
+    elif tipo_relatorio == 'tipo_tarefa_os':
+        categorias.extend(sorted(list(MAPEAMENTO_TAREFAS.keys())))
+        categorias.append('Não Categorizado')
 
     return JsonResponse({'categorias': categorias})
