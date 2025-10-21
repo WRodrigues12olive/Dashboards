@@ -32,6 +32,10 @@
                             <th>Local/Empresa</th>
                             <th>Data Criação</th>
                             <th>Avanço (%)</th>
+
+                            {% if mostrar_categoria_tarefa %}
+                                <th>Categoria da Tarefa</th>
+                            {% endif %}
                             {% if mostrar_tempo_em_status %}
                                 <th>{{ nome_coluna_tempo }}</th>
                             {% endif %}
@@ -50,6 +54,10 @@
                             <td>{{ os.Local_Empresa }}</td>
                             <td>{{ os.Data_Criacao_OS|date:"d/m/Y H:i" }}</td>
                             <td>{{ os.Avanco_da_OS|default_if_none:"0" }}%</td>
+
+                            {% if mostrar_categoria_tarefa %}
+                                <td>{{ os.categoria_tarefa }}</td>
+                            {% endif %}
                             {% if mostrar_tempo_em_status %}
                                 <td>{{ os.tempo_em_status|format_timedelta }}</td>
                             {% endif %}
@@ -60,7 +68,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="8" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
+                            <td colspan="9" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
