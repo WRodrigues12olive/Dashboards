@@ -11,4 +11,5 @@ urlpatterns = [
     path('extrair/resultado/', views.resultado_view, name='resultado_relatorio'),
     path('extrair/download-excel/', views.gerar_excel_view, name='download_excel'),
     path('api/get-categorias/', views.api_get_categorias_view, name='api_get_categorias'),
+    path('resumo-clientes/', views.resumo_clientes_view, name='resumo_clientes'),
 ]

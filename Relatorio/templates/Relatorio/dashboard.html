@@ -10,6 +10,7 @@
         .chart-container, .report-container { background-color: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 0 15px rgba(0,0,0,0.05); }
         .chart-container { height: 400px; }
         #osPorLocalChartContainer { height: 700px; }
+        #osPorTecnicoChartContainer { height: 700px; }
     </style>
 </head>
 <body>
@@ -51,7 +52,7 @@
         <div class="row">
             <div class="col-xl-4 mb-4"><div class="chart-container"><h5>OS Criadas por Mês (Histórico)</h5><canvas id="osPorMesChart"></canvas></div></div>
             <div class="col-xl-4 mb-4"><div class="chart-container"><h5>Origem de OS (Via Ticket)</h5><canvas id="osPorTicketChart"></canvas></div></div>
-            <div class="col-xl-4 mb-4"><div class="chart-container"><h5>Tipo de Tarefa (no período)</h5><canvas id="tarefaPorGrupoChart"></canvas></div></div>
+            <div class="col-xl-4 mb-4"><div class="chart-container"><h5>Tipo de Tarefas</h5><canvas id="TipoTarefasPorOSChart"></canvas></div></div>
         </div>
 
         <div class="row">
@@ -59,6 +60,14 @@
                 <div class="report-container">
                     <h5>Ocorrências por Local/Cliente (no período)</h5>
                     <div id="osPorLocalChartContainer" class="chart-container"><canvas id="osPorLocalChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-12 mb-4"> <div class="report-container">
+                <h5>Ordens de Serviço por Técnico (no período)</h5>
+                    <div id="osPorTecnicoChartContainer" class="chart-container">><canvas id="osPorTecnicoChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -147,8 +156,8 @@
     {{ execucao_status_data|json_script:"execucao_status_data" }}
     {{ local_agrupado_labels|json_script:"local_agrupado_labels" }}
     {{ local_agrupado_data|json_script:"local_agrupado_data" }}
-    {{ tarefa_grupo_labels|json_script:"tarefa_grupo_labels" }}
-    {{ tarefa_grupo_data|json_script:"tarefa_grupo_data" }}
+    {{ tipo_tarefa_grupo_labels|json_script:"tipo_tarefa_grupo_labels" }}
+    {{ tipo_tarefa_grupo_data|json_script:"tipo_tarefa_grupo_data" }}
     {{ weekly_labels|json_script:"weekly_labels" }}
     {{ weekly_data_points|json_script:"weekly_data_points" }}
     {{ sla_atendimento_c0_data|json_script:"sla_atendimento_c0_data" }}
@@ -159,6 +168,11 @@
     {{ sla_resolucao_c2_data|json_script:"sla_resolucao_c2_data" }}
     {{ sla_parkshopping_data|json_script:"sla_parkshopping_data" }}
     {{ sla_cpfl_data|json_script:"sla_cpfl_data" }}
+    {{ tipo_tarefa_grupo_labels|json_script:"tipo_tarefa_grupo_labels" }}
+    {{ tipo_tarefa_grupo_data|json_script:"tipo_tarefa_grupo_data" }}
+    {{ tecnico_grupo_labels|json_script:"tecnico_grupo_labels" }}
+    {{ tecnico_grupo_data|json_script:"tecnico_grupo_data" }}
+    {{ weekly_labels|json_script:"weekly_labels" }}
 
     <script>
         Chart.register(ChartDataLabels);
@@ -169,8 +183,9 @@
         new Chart(document.getElementById('osPorCriticidadeChart'), { type: 'bar', data: { labels: getDjangoData('criticidade_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('criticidade_data'), backgroundColor: '#0d6efd', }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { anchor: 'end', align: 'top', color: '#495057', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('osPorMesChart'), { type: 'line', data: { labels: getDjangoData('mes_labels'), datasets: [{ label: 'Nº de OS Criadas', data: getDjangoData('mes_data'), borderColor: '#fd7e14', tension: 0.1, fill: false }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { display: false } } } });
         new Chart(document.getElementById('osPorTicketChart'), { type: 'doughnut', data: { labels: getDjangoData('ticket_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('ticket_data'), backgroundColor: ['#dc3545', '#28a745'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
-        new Chart(document.getElementById('tarefaPorGrupoChart'), { type: 'pie', data: { labels: getDjangoData('tarefa_grupo_labels'), datasets: [{label: 'Total de Tarefas', data: getDjangoData('tarefa_grupo_data'), backgroundColor: ['#0d6efd','6f42c1', '#dc3545', '#17a2b8', '#6c757d', '#ffc107'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } }});
-        
+        new Chart(document.getElementById('TipoTarefasPorOSChart'), { type: 'pie', data: { labels: getDjangoData('tipo_tarefa_grupo_labels'), datasets: [{label: 'Total de Tarefas', data: getDjangoData('tipo_tarefa_grupo_data'), backgroundColor: ['#0d6efd', '#ffc107', '#fd7e14', '#6f42c1', '#20c997', '#dc3545', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } }});
+        new Chart(document.getElementById('osPorTecnicoChart'), {type: 'bar', data: {labels: getDjangoData('tecnico_grupo_labels'), datasets: [{label: 'Total de OS', data: getDjangoData('tecnico_grupo_data'), backgroundColor: '#6f42c1',}]}, options: {indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: {y: {ticks: {font: { size: 10 } } } }, plugins: {datalabels: {anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold', size: 10 } } } } });
+
         // --- GRÁFICOS MENORES RESTAURADOS E CORRIGIDOS ---
         new Chart(document.getElementById('execucaoStatusChart'), { type: 'doughnut', data: { labels: getDjangoData('execucao_status_labels'), datasets: [{ label: 'Contagem de OS', data: getDjangoData('execucao_status_data'), backgroundColor: ['#0d6efd', '#fd7e14', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('slaAtendimentoChart'), { type: 'bar', data: { labels: ['C0 (3h)', 'C1 (12h)', 'C2 (24h)'], datasets: [ { label: 'SLA Atendido', data: [getDjangoData('sla_atendimento_c0_data').atendido, getDjangoData('sla_atendimento_c1_data').atendido, getDjangoData('sla_atendimento_c2_data').atendido], backgroundColor: '#28a745' }, { label: 'SLA Não Atendido', data: [getDjangoData('sla_atendimento_c0_data').nao_atendido, getDjangoData('sla_atendimento_c1_data').nao_atendido, getDjangoData('sla_atendimento_c2_data').nao_atendido], backgroundColor: '#DC3545' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: 'white', font: { weight: 'bold' } } } } });

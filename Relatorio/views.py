@@ -1,8 +1,9 @@
 from django.shortcuts import render
 from django.db.models import Count, F, Q
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.db.utils import OperationalError
 from django.db.models.functions import TruncMonth, ExtractWeek, Now
+from django.db.models import Avg, ExpressionWrapper, DurationField
+from dateutil.relativedelta import relativedelta
+from .mappings import KEYWORDS_LOCAIS, MAPEAMENTO_PLANO_TAREFAS_DETALHADO, MAPEAMENTO_TECNICOS
 from .models import OrdemDeServico, Tarefa
 from datetime import datetime, timedelta
 from django.http import JsonResponse, HttpResponse
@@ -10,79 +11,217 @@ from django.shortcuts import redirect
 from django.urls import reverse
 import pandas as pd
 import io
-import re
 from collections import defaultdict
+import unicodedata
+import re
+import difflib
 
-# --- LÓGICA CENTRALIZADA DE AGRUPAMENTO POR LOCAL (sem alterações) ---
-KEYWORDS_LOCAIS = [
-    "ADAMA", "ADM BRASIL", "ALPHAVILLE", "ARCELORMITTAL", "ASSEMBLEIA", "BALL", "BIC", "CPFL", "CSN",
-    "ENGELOG", "FITESA", "FUNDAÇÃO BANRISUL", "GERDAU", "HOSPITAL DE CLINICAS", "LOJA MAÇONICA", "M DIAS", "NEOENERGIA",
-    "PORTO DO AÇU", "RAIZEN", "SICOOB", "SIMEC", "SUMESA", "TRÊS CORAÇÕES", "TRT4", "TURIS", "UNILEVER",
-    "UFRGS IPH", "UFRGS", "PARK SHOPPING CANOAS", "CANOAS"
-]
 
-MAPEAMENTO_TAREFAS = {
-    "Corretiva": {
-        "acompanhamento de atividade de terceiros", "corretiva", "corretiva teste",
-        "corretiva com análise de falha", "corretiva/preventiva/instalação",
-        "corretivo cartão sd card", "corretivo de caixa econômica federal", "correto",
-        "correção de falha", "garantia", "manutenção corretiva do equipamentos de alarme e c",
-        "manutenção corretiva do equipamentos de cftv", "manutenção corretivo cliente avulso",
-        "manutenção de garantia da implantação", "plano corretivo cliente contrato",
-        "plano corretivo cliente contrato emergencial", "substituição",
-        "substituição de equipamento", "troca de equipamento"
-    },
-    "Preventiva": {
-        "autorização preventiva", "checklist servidor", "limpeza de equipamentos",
-        "manutenção preventiva cftv", "manutenção preventiva do equipamentos de rede - ra",
-        "plano preventivo cliente contrato", "preventiva", "preventiva câmeras",
-        "preventiva neo", "programação de manutenção",
-        "programação de manutenção de segurança eletrônica",
-        "programação de manutenção de telefônica", "programações", "checklist"
-    },
-    "Instalação": {
-        "fornecimento de mão de obra - projetos", "instalação", "instalação manutenção",
-        "instalação manutenção avulso", "instalação de licenças", "instalação de novos serviços",
-        "instalação e manutenção de software", "instalação novos serviços cftv contrato",
-        "instalação para implantação", "instalação/manutenção de software",
-        "po instalação de novos serviços", "plano de instalação termica", "remanejamento",
-        "reposicionamento"
-    },
-    "Manutenção Remota": {
-        "acesso remoto", "manutenção remota", "manutenção remota cftv avulso",
-        "manutenção remota cftv contrato", "manutenção remota telefonia avulso",
-        "manutenção remota telefonia contrato", "manutenção remota de clientes avulso",
-        "manutenção remota de clientes de contrato"
-    },
-    "Levantamento": {
-        "apoio técnico cftv contrato", "configuração sirene", "criar usuário",
-        "criação de ádio para central tel", "exportação de imagens cliente de contrato",
-        "laudo", "levantamento", "levantamento para implantação", "levantamento para manutenção",
-        "levantamento para manutenção avulso", "levantamento para manutenção contrato seg.eletroni",
-        "levantamento para manutenção contrato telefonia", "levantamento para manutenção de contrato",
-        "telefone de emergência", "usuário sistema gitel"
-    },
-    "Outros": {
-        "acompanhamento técnico", "analítico", "atividades extras", "cdm", "devolução",
-        "entrega", "entrega de documentação", "entrega de material", "equipamento para teste",
-        "manutenção chamado avulso", "manutenção de chamado contrato", "orçamento", "poc",
-        "procedimento", "qdv", "retirada", "recusa de tarefa", "retirada de equipamento",
-        "retirada de equipamento para manutenção", "reunião csn sirene", "termo de aceite",
-        "teste", "treinamento"
+def resumo_clientes_view(request):
+    # Lista de clientes específicos (baseado nas keywords, ajuste os nomes se necessário)
+    clientes_target_keywords = [
+        "GERDAU", "LOJA MAÇONICA", "HOSPITAL DE CLINICAS", "PARK SHOPPING CANOAS",
+        "TRT", # Assumindo que TRT4 é o keyword para TRT
+        "UNILEVER",
+        "FUNDAÇÃO BANRISUL", # Keyword para Banrisul
+        "CSN", "CPFL", "ALPHAVILLE", "ASSEMBLEIA"
+    ]
+    # Mapeamento de keyword para nome de exibição (opcional, para nomes mais amigáveis)
+    cliente_display_names = {
+        "GERDAU": "Gerdau",
+        "LOJA MAÇONICA": "Loja Maçônica",
+        "HOSPITAL DE CLINICAS": "Hospital de Clínicas",
+        "PARK SHOPPING CANOAS": "Park Shopping Canoas",
+        "TRT": "TRT",
+        "UNILEVER": "Unilever",
+        "FUNDAÇÃO BANRISUL": "Banrisul",
+        "CSN": "CSN",
+        "CPFL": "CPFL",
+        "ALPHAVILLE": "Alphaville",
+        "ASSEMBLEIA": "Assembleia Legislativa" # Exemplo de nome mais completo
     }
-}
 
-PLANO_PARA_CATEGORIA_MAP = {
-    plano.lower(): categoria
-    for categoria, planos in MAPEAMENTO_TAREFAS.items()
-    for plano in planos
-}
 
-def get_grupo_tarefa(plano_tarefa_str):
-    if not plano_tarefa_str:
+    # --- Tratamento das Datas ---
+    today = datetime.now().date()
+    # Data padrão: 6 meses atrás (primeiro dia daquele mês)
+    default_start_date = (today - relativedelta(months=6)).replace(day=1)
+    default_end_date = today
+
+    # Obtém datas do GET ou usa os padrões
+    start_date_str = request.GET.get('start_date', default_start_date.strftime('%Y-%m-%d'))
+    end_date_str = request.GET.get('end_date', default_end_date.strftime('%Y-%m-%d'))
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        # Adiciona 1 dia ao end_date para incluir o dia todo na query (__lt)
+        # Ou ajusta para o fim do dia se preferir usar __lte
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        end_date_query = end_date + timedelta(days=1) # Para usar com __lt
+        # Ou: end_date_query = datetime.combine(end_date, datetime.max.time()) # Para usar com __lte
+    except (ValueError, TypeError):
+        start_date = default_start_date
+        end_date = default_end_date
+        end_date_query = end_date + timedelta(days=1)
+        # Ou: end_date_query = datetime.combine(end_date, datetime.max.time())
+
+    os_no_periodo_filtrado = OrdemDeServico.objects.filter(
+        Data_Criacao_OS__gte=start_date,
+        Data_Criacao_OS__lt=end_date_query
+    )
+
+    os_por_mes = (
+        OrdemDeServico.objects  # Começa com todas as OS
+        .annotate(mes=TruncMonth('Data_Criacao_OS'))  # Agrupa por mês
+        .values('mes')  # Seleciona o mês
+        .annotate(total=Count('id'))  # Conta OSs por mês
+        .order_by('mes')  # Ordena pelo mês
+    )  #
+    mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes if d['mes']]  # Formata 'Mês/Ano' #
+    mes_data = [d['total'] for d in os_por_mes if d['mes']]
+
+    # --- Cálculo dos Dados por Cliente ---
+    data_resumo = []
+
+    for keyword in clientes_target_keywords:
+        # Filtra OSs do cliente no período
+        os_cliente_periodo = OrdemDeServico.objects.filter(
+            Local_Empresa__icontains=keyword,
+            Data_Criacao_OS__gte=start_date,
+            Data_Criacao_OS__lt=end_date_query # Usa __lt com o dia seguinte
+            # Ou: Data_Criacao_OS__lte=end_date_query # Se usou datetime.combine
+        )
+
+        total_os = os_cliente_periodo.count()
+        if total_os == 0: # Pula se não houver OS para o cliente no período
+             # Ou adiciona uma linha com zeros, se preferir
+             # data_resumo.append({
+             #     'cliente': cliente_display_names.get(keyword, keyword),
+             #     'total_os': 0, 'concluidas': 0, 'em_processo': 0,
+             #     'em_verificacao': 0, 'canceladas': 0,
+             #     'tempo_medio_atendimento': None, 'sla_status': 'N/A'
+             # })
+             continue
+
+        concluidas = os_cliente_periodo.filter(Status='Concluído').count()
+        em_processo = os_cliente_periodo.filter(Status='Em Processo').count()
+        em_verificacao = os_cliente_periodo.filter(Status='Em Verificação').count()
+        canceladas = os_cliente_periodo.filter(Status='Cancelado').count()
+
+        # Calcula o tempo médio de atendimento (Criação até Envio Verificação)
+        tempo_medio_atendimento = os_cliente_periodo.filter(
+            Data_Enviado_Verificacao__isnull=False,
+            Data_Criacao_OS__isnull=False
+        ).aggregate(
+            avg_duration=Avg(
+                ExpressionWrapper(F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'), output_field=DurationField())
+            )
+        )['avg_duration']
+
+        data_resumo.append({
+            'cliente': cliente_display_names.get(keyword, keyword), # Usa o nome de exibição
+            'total_os': total_os,
+            'concluidas': concluidas,
+            'em_processo': em_processo,
+            'em_verificacao': em_verificacao,
+            'canceladas': canceladas,
+            'tempo_medio_atendimento': tempo_medio_atendimento, # Será None se não houver dados
+            'sla_status': 'N/A' # Placeholder para SLA
+        })
+
+    os_por_ticket_periodo = os_no_periodo_filtrado.exclude(  # Usa o queryset já filtrado por data
+        Possui_Ticket__isnull=True
+    ).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')  #
+    ticket_labels_periodo = [item['Possui_Ticket'] for item in os_por_ticket_periodo]  #
+    ticket_data_periodo = [item['total'] for item in os_por_ticket_periodo]  #
+
+    # --- Cálculo para Gráfico "Tipo de Tarefa" NO PERÍODO (Contagem única por OS) ---
+    tarefas_tipos_no_periodo_filtrado = Tarefa.objects.filter(
+        ordem_de_servico__in=os_no_periodo_filtrado  # Usa o queryset já filtrado por data
+    ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
+                                                   ).values('ordem_de_servico_id', 'Tipo_de_Tarefa')  #
+
+    grupos_tipo_por_os_periodo = defaultdict(set)
+    for tarefa_data in tarefas_tipos_no_periodo_filtrado:
+        os_id = tarefa_data['ordem_de_servico_id']  #
+        tipo_tarefa = tarefa_data['Tipo_de_Tarefa']  #
+        grupo_tipo = get_grupo_tipo_tarefa(tipo_tarefa)  #
+        grupos_tipo_por_os_periodo[os_id].add(grupo_tipo)  #
+
+    contagem_grupo_tipo_tarefa_periodo = defaultdict(int)
+    for os_id, grupos_da_os in grupos_tipo_por_os_periodo.items():
+        for grupo in grupos_da_os:  #
+            contagem_grupo_tipo_tarefa_periodo[grupo] += 1  #
+
+    tipo_tarefa_grupo_labels_periodo = list(contagem_grupo_tipo_tarefa_periodo.keys())  #
+    tipo_tarefa_grupo_data_periodo = list(contagem_grupo_tipo_tarefa_periodo.values())
+
+    context = {
+        'data_resumo': data_resumo,
+        'start_date': start_date.strftime('%Y-%m-%d'),
+        'end_date': end_date.strftime('%Y-%m-%d'),
+        'mes_labels': mes_labels,
+        'mes_data': mes_data,
+        'ticket_labels_periodo': ticket_labels_periodo,
+        'ticket_data_periodo': ticket_data_periodo,
+        'tipo_tarefa_grupo_labels_periodo': tipo_tarefa_grupo_labels_periodo,
+        'tipo_tarefa_grupo_data_periodo': tipo_tarefa_grupo_data_periodo,
+    }
+
+    return render(request, 'Relatorio/resumo_clientes.html', context)
+
+
+
+def normalize_text(s: str) -> str:
+    if not s:
+        return ''
+    s = unicodedata.normalize('NFKD', s)
+    s = s.encode('ASCII', 'ignore').decode('utf-8')
+    s = s.lower()
+    s = re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'[^0-9a-z\-\s/]', '', s)
+    return s
+
+TECNICO_PARA_GRUPO_MAP = {}
+for grupo_principal, nomes_brutos in MAPEAMENTO_TECNICOS.items():
+    for nome_bruto in nomes_brutos:
+        key = normalize_text(nome_bruto)
+        TECNICO_PARA_GRUPO_MAP[key] = grupo_principal
+
+KNOWN_TECNICO_KEYS = list(TECNICO_PARA_GRUPO_MAP.keys())
+
+
+TIPO_TAREFA_PARA_GRUPO = {}
+for grupo, tipos in MAPEAMENTO_PLANO_TAREFAS_DETALHADO.items():
+    for tipo in tipos:
+        tipo_normalizado = ' '.join(tipo.strip().split()).lower()
+        TIPO_TAREFA_PARA_GRUPO[tipo_normalizado] = grupo
+
+
+def get_grupo_tecnico(responsavel_str):
+    if not responsavel_str:
+        return 'Não Mapeado'
+    responsavel_normalizado = normalize_text(responsavel_str)
+
+    grupo = TECNICO_PARA_GRUPO_MAP.get(responsavel_normalizado)
+    if grupo:
+        return grupo
+
+    for key in KNOWN_TECNICO_KEYS:
+        if key and (key in responsavel_normalizado or responsavel_normalizado in key):
+            return TECNICO_PARA_GRUPO_MAP[key]
+
+    close = difflib.get_close_matches(responsavel_normalizado, KNOWN_TECNICO_KEYS, n=1, cutoff=0.85)
+    if close:
+        return TECNICO_PARA_GRUPO_MAP[close[0]]
+
+    return 'Outros'
+
+def get_grupo_tipo_tarefa(tipo_tarefa_str):
+    if not tipo_tarefa_str:
         return 'Não Categorizado'
-    plano_normalizado = plano_tarefa_str.strip().lower()
-    return PLANO_PARA_CATEGORIA_MAP.get(plano_normalizado, 'Outros')
+    tipo_normalizado = ' '.join(tipo_tarefa_str.strip().split()).lower()
+    return TIPO_TAREFA_PARA_GRUPO.get(tipo_normalizado, 'Outros')
 
 def get_grupo_local(local_str):
     if not local_str: return 'Outros'
@@ -190,29 +329,55 @@ def dashboard_view(request):
     local_agrupado_labels = [item[0] for item in grupos_ordenados]
     local_agrupado_data = [item[1] for item in grupos_ordenados]
 
-    contagem_grupo_tarefa_os = defaultdict(int)
-    os_ids_no_periodo = ordens_no_periodo.values_list('id', flat=True)
+    tarefas_tipos_no_periodo = Tarefa.objects.filter(
+        ordem_de_servico__in=ordens_no_periodo
+    ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
+                                                   ).values(
+        'ordem_de_servico_id',
+        'Tipo_de_Tarefa',
+    )
 
-    tarefas_relevantes = Tarefa.objects.filter(
-        ordem_de_servico_id__in=os_ids_no_periodo
-    ).exclude(
-        Plano_de_Tarefas__isnull=True
-    ).exclude(
-        Plano_de_Tarefas__exact=''
-    ).select_related('ordem_de_servico')
+    grupos_tipo_por_os = defaultdict(set)
 
-    os_categorizada = {}
-    for tarefa in tarefas_relevantes:
-        os_id = tarefa.ordem_de_servico_id
-        if os_id not in os_categorizada:
-            grupo = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
-            os_categorizada[os_id] = grupo
-            contagem_grupo_tarefa_os[grupo] += 1
+    for tarefa_data in tarefas_tipos_no_periodo:
+        os_id = tarefa_data['ordem_de_servico_id']
+        tipo_tarefa = tarefa_data['Tipo_de_Tarefa']
+        grupo_tipo = get_grupo_tipo_tarefa(tipo_tarefa)
+        grupos_tipo_por_os[os_id].add(grupo_tipo)
 
-    tarefa_grupo_labels = list(contagem_grupo_tarefa_os.keys())
-    tarefa_grupo_data = list(contagem_grupo_tarefa_os.values())
+    contagem_grupo_tipo_tarefa = defaultdict(int)
+    for os_id, grupos_da_os in grupos_tipo_por_os.items():
+        for grupo in grupos_da_os:
+            contagem_grupo_tipo_tarefa[grupo] += 1
 
+    tipo_tarefa_grupo_labels = list(contagem_grupo_tipo_tarefa.keys())
+    tipo_tarefa_grupo_data = list(contagem_grupo_tipo_tarefa.values())
 
+    tarefas_tecnicos_no_periodo = Tarefa.objects.filter(
+        ordem_de_servico__in=ordens_no_periodo
+    ).exclude(Responsavel__isnull=True).exclude(Responsavel__exact=''
+                                                ).values(
+        'ordem_de_servico_id',
+        'Responsavel'
+    )
+
+    grupos_tecnico_por_os = defaultdict(set)
+
+    for tarefa_data in tarefas_tecnicos_no_periodo:
+        os_id = tarefa_data['ordem_de_servico_id']
+        responsavel = tarefa_data['Responsavel']
+        grupo_tecnico = get_grupo_tecnico(responsavel)
+        grupos_tecnico_por_os[os_id].add(grupo_tecnico)
+
+    contagem_grupo_tecnico = defaultdict(int)
+    for os_id, grupos_da_os in grupos_tecnico_por_os.items():
+        for grupo in grupos_da_os:
+            contagem_grupo_tecnico[grupo] += 1
+
+    grupos_tecnico_ordenados = sorted(contagem_grupo_tecnico.items(), key=lambda item: item[1], reverse=True)
+
+    tecnico_grupo_labels = [item[0] for item in grupos_tecnico_ordenados]
+    tecnico_grupo_data = [item[1] for item in grupos_tecnico_ordenados]
 
     sla_atendimento_c0 = _calculate_sla_for_group(ordens_no_periodo, '(C0)', 3)
     sla_atendimento_c1 = _calculate_sla_for_group(ordens_no_periodo, '(C1)', 12)
@@ -256,8 +421,8 @@ def dashboard_view(request):
         'execucao_status_data': [em_andamento_count, pausadas_count, nao_iniciadas_count],
         'local_agrupado_labels': local_agrupado_labels, 'local_agrupado_data': local_agrupado_data,
         'start_date': start_date_str, 'end_date': end_date_str,
-        'tarefa_grupo_labels': tarefa_grupo_labels,
-        'tarefa_grupo_data': tarefa_grupo_data,
+        'tipo_tarefa_grupo_labels': tipo_tarefa_grupo_labels,
+        'tipo_tarefa_grupo_data': tipo_tarefa_grupo_data,
         'anos_disponiveis': anos_disponiveis, 'selected_year_weekly': selected_year_weekly,
         'weekly_labels': weekly_labels, 'weekly_data_points': weekly_data_points,
         'sla_atendimento_c0_data': sla_atendimento_c0, 'sla_atendimento_c1_data': sla_atendimento_c1, 'sla_atendimento_c2_data': sla_atendimento_c2,
@@ -266,6 +431,8 @@ def dashboard_view(request):
         'sla_cpfl_data': sla_cpfl_data,
         'grupos_de_local_disponiveis': grupos_de_local_disponiveis,
         'selected_local': selected_local,
+        'tecnico_grupo_labels': tecnico_grupo_labels,
+        'tecnico_grupo_data': tecnico_grupo_data,
     }
     return render(request, 'Relatorio/dashboard.html', context)
 
@@ -336,7 +503,7 @@ def sla_parkshopping_violado_view(request):
     context = {
         'os_violadas': os_violadas, 
         'sla_hours': sla_hours,
-        'tipo_sla': 'Resolução' # Corrigido para maior clareza
+        'tipo_sla': 'Resolução'
     }
     return render(request, 'Relatorio/sla_violado.html', context)
 
@@ -372,6 +539,11 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
         except (ValueError, TypeError):
             pass
 
+    base_queryset = base_queryset.annotate(
+        tempo_em_execucao=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'),
+        tempo_em_verificacao=F('Data_Finalizacao_OS') - F('Data_Enviado_Verificacao')
+    )
+
     if categoria and categoria != 'todas':
         if tipo_relatorio == 'status':
             base_queryset = base_queryset.filter(Status=categoria)
@@ -391,25 +563,19 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
         elif tipo_relatorio == 'ticket':
             base_queryset = base_queryset.filter(Possui_Ticket=categoria)
 
-        elif tipo_relatorio == 'tipo_tarefa_os':
-            if categoria != 'todas':
-                os_ids_na_categoria = set()
 
-                tarefas = Tarefa.objects.filter(
-                    ordem_de_servico__in=base_queryset
-                ).exclude(
-                    Plano_de_Tarefas__isnull=True
-                ).exclude(
-                    Plano_de_Tarefas__exact=''
-                )
+        elif tipo_relatorio == 'tipo_tarefa_agrupados':
+            tarefas_no_periodo = Tarefa.objects.filter(
+                ordem_de_servico__in=base_queryset
+            ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact='')
 
-                for tarefa in tarefas:
-                    grupo = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
-                    if grupo == categoria:
-                        os_ids_na_categoria.add(tarefa.ordem_de_servico_id)
+            ids_os_para_filtrar = set()
 
-                base_queryset = base_queryset.filter(id__in=os_ids_na_categoria)
+            for tarefa in tarefas_no_periodo:
+                if get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa) == categoria:
+                    ids_os_para_filtrar.add(tarefa.ordem_de_servico_id)
 
+            base_queryset = base_queryset.filter(id__in=list(ids_os_para_filtrar))
 
         elif tipo_relatorio == 'execucao':
             os_ativas = base_queryset.exclude(Status__in=['Concluído', 'Cancelado'])
@@ -429,7 +595,21 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
 
         elif tipo_relatorio == 'locais_agrupados':
             ids_para_filtrar = [os['id'] for os in base_queryset.exclude(Local_Empresa__isnull=True).values('id', 'Local_Empresa') if get_grupo_local(os['Local_Empresa']) == categoria]
-            base_queryset = OrdemDeServico.objects.filter(id__in=ids_para_filtrar)
+            base_queryset = base_queryset.filter(id__in=ids_para_filtrar)
+
+        elif tipo_relatorio == 'tecnico_agrupados':
+            tarefas_no_periodo = Tarefa.objects.filter(
+                ordem_de_servico__in=base_queryset
+            ).exclude(Responsavel__isnull=True).exclude(Responsavel__exact='')
+
+            ids_os_para_filtrar = set()
+
+            for tarefa in tarefas_no_periodo:
+                if get_grupo_tecnico(tarefa.Responsavel) == categoria:
+                    ids_os_para_filtrar.add(tarefa.ordem_de_servico_id)
+
+            base_queryset = base_queryset.filter(id__in=list(ids_os_para_filtrar))
+
 
     return base_queryset.order_by('-Data_Criacao_OS')
 
@@ -454,47 +634,46 @@ def resultado_view(request):
     categoria = request.GET.get('categoria')
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
-    page_number = request.GET.get('page', 1)
-
 
     dados_filtrados = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date)
 
-    if tipo_relatorio == 'tipo_tarefa_os' and dados_filtrados:
-        os_ids_na_lista = [os.id for os in dados_filtrados]
-
-        tarefas_para_categorizar = Tarefa.objects.filter(
-            ordem_de_servico_id__in=os_ids_na_lista
-        ).exclude(Plano_de_Tarefas__isnull=True).exclude(Plano_de_Tarefas__exact='')
-
-        mapa_os_categoria = {}
-        for tarefa in tarefas_para_categorizar:
-            os_id = tarefa.ordem_de_servico_id
-            if os_id not in mapa_os_categoria:
-                mapa_os_categoria[os_id] = get_grupo_tarefa(tarefa.Plano_de_Tarefas)
-
-        for os in dados_filtrados:
-            os.categoria_tarefa = mapa_os_categoria.get(os.id, 'Não Categorizado')
-
     mostrar_tempo_em_status = (tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação'])
-    mostrar_tempos_conclusao = (tipo_relatorio == 'status' and categoria == 'Concluído')
+    mostrar_tempos_conclusao = tipo_relatorio in ['status', 'locais_agrupados', 'plano_tarefas_agrupados', 'tecnico_agrupados']
     nome_coluna_tempo = f"Tempo {categoria}" if mostrar_tempo_em_status else ""
-    mostrar_categoria_tarefa = (tipo_relatorio == 'tipo_tarefa_os')
+
+    tipo_relatorio_display = ''
+    if tipo_relatorio:
+        if tipo_relatorio == 'plano_tarefas_agrupados':
+            tipo_relatorio_display = 'Ocorrências por Grupo de Plano de Tarefas'
+
+        elif tipo_relatorio == 'tecnico_agrupados':
+            tipo_relatorio_display = 'Ocorrências por Grupo de Técnico'
+
+        else:
+            tipo_relatorio_display = tipo_relatorio.replace("_", " ").title()
 
     context = {
         'ordens_de_servico': dados_filtrados,
         'total': dados_filtrados.count(),
         'tipo_relatorio': tipo_relatorio,
-        'tipo_relatorio_display': tipo_relatorio.replace("_", " ").title() if tipo_relatorio else '',
+        'tipo_relatorio_display': tipo_relatorio_display,
         'categoria_display': categoria if categoria != 'todas' else 'Todas as Categorias',
         'start_date': start_date,
         'end_date': end_date,
         'mostrar_tempo_em_status': mostrar_tempo_em_status,
         'mostrar_tempos_conclusao': mostrar_tempos_conclusao,
         'nome_coluna_tempo': nome_coluna_tempo,
-        'mostrar_categoria_tarefa': mostrar_categoria_tarefa,
     }
     return render(request, 'Relatorio/resultado_extracao.html', context)
 
+def format_excel_timedelta(td):
+    if pd.isnull(td) or not isinstance(td, timedelta): return ''
+    total_seconds = int(td.total_seconds())
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if days > 0: return f'{days}d {hours:02}:{minutes:02}:{seconds:02}'
+    return f'{hours:02}:{minutes:02}:{seconds:02}'
 
 def gerar_excel_view(request):
     tipo_relatorio = request.GET.get('tipo_relatorio')
@@ -502,40 +681,41 @@ def gerar_excel_view(request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
 
+    # Chama _get_dados_filtrados (que já inclui as anotações de tempo)
     dados_filtrados = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date)
 
+    # Lista base de colunas
     colunas_excel = [
         'OS', 'Status', 'Nivel_de_Criticidade', 'Local_Empresa', 'Criado_Por',
         'Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS',
         'Avanco_da_OS', 'Possui_Ticket', 'Ticket_ID', 'Observacao_OS'
     ]
 
+    # Adiciona colunas de tempo condicionalmente
+    tipos_para_incluir_tempo = ['status', 'locais_agrupados', 'plano_tarefas_agrupados']
+
     if tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação']:
         colunas_excel.append('tempo_em_status')
-    elif tipo_relatorio == 'status' and categoria == 'Concluído':
+    elif tipo_relatorio in tipos_para_incluir_tempo:
+        # Inclui os tempos de execução e verificação para os tipos selecionados
         colunas_excel.extend(['tempo_em_execucao', 'tempo_em_verificacao'])
 
+    # Pega os valores do queryset (incluindo as anotações, se existirem)
     dados_para_excel = dados_filtrados.values(*colunas_excel)
     df = pd.DataFrame(list(dados_para_excel))
 
+    # Formata colunas de data
     colunas_de_data = ['Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS']
     for coluna in colunas_de_data:
         if coluna in df.columns:
-            df[coluna] = df[coluna].apply(lambda x: x.tz_localize(None) if pd.notnull(x) else x)
+             df[coluna] = df[coluna].apply(lambda x: x.tz_localize(None) if pd.notnull(x) else x)
 
-    def format_excel_timedelta(td):
-        if pd.isnull(td) or not isinstance(td, timedelta): return ''
-        total_seconds = int(td.total_seconds())
-        days, remainder = divmod(total_seconds, 86400)
-        hours, remainder = divmod(remainder, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        if days > 0: return f'{days}d {hours:02}:{minutes:02}:{seconds:02}'
-        return f'{hours:02}:{minutes:02}:{seconds:02}'
-
+    # Formata colunas de tempo (timedelta)
     for col in ['tempo_em_status', 'tempo_em_execucao', 'tempo_em_verificacao']:
         if col in df.columns:
             df[col] = df[col].apply(format_excel_timedelta)
 
+    # Dicionário base para renomear colunas
     rename_dict = {
         'OS': 'OS', 'Status': 'Status', 'Nivel_de_Criticidade': 'Criticidade',
         'Local_Empresa': 'Local/Empresa', 'Criado_Por': 'Criado Por',
@@ -543,27 +723,35 @@ def gerar_excel_view(request):
         'Data_Finalizacao_OS': 'Data Finalização', 'Avanco_da_OS': 'Avanço (%)',
         'Possui_Ticket': 'Possui Ticket?', 'Ticket_ID': 'ID do Ticket',
         'Observacao_OS': 'Observação',
-        'tempo_em_status': f"Tempo em {categoria}",
-        'tempo_em_execucao': "Tempo em Execução",
-        'tempo_em_verificacao': "Tempo em Verificação"
     }
+    # Adiciona renomeação condicional para colunas de tempo
+    if tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação']:
+         rename_dict['tempo_em_status'] = f"Tempo em {categoria}"
+    elif tipo_relatorio in tipos_para_incluir_tempo:
+         rename_dict['tempo_em_execucao'] = "Tempo em Execução"
+         rename_dict['tempo_em_verificacao'] = "Tempo em Verificação"
+
     df.rename(columns=rename_dict, inplace=True)
 
+    # Formata colunas de data como string no formato desejado
     for col in ['Data Criação', 'Data Início', 'Data Finalização']:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+            # Converte para datetime (se ainda não for), tratando erros, e depois formata
+            df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
+    # Gera o arquivo Excel em memória
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Relatorio')
     buffer.seek(0)
+
+    # Cria a resposta HTTP para download
     response = HttpResponse(
         buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
     response[
         'Content-Disposition'] = f'attachment; filename="relatorio_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     return response
-
 
 def api_get_categorias_view(request):
     tipo_relatorio = request.GET.get('tipo_relatorio')
@@ -583,8 +771,17 @@ def api_get_categorias_view(request):
     elif tipo_relatorio == 'locais_agrupados':
         categorias.extend(sorted([kw.title() for kw in KEYWORDS_LOCAIS]))
         categorias.append('Outros')
-    elif tipo_relatorio == 'tipo_tarefa_os':
-        categorias.extend(sorted(list(MAPEAMENTO_TAREFAS.keys())))
-        categorias.append('Não Categorizado')
+    elif tipo_relatorio == 'tipo_tarefa_agrupados':
+        categorias.extend(sorted(list(MAPEAMENTO_PLANO_TAREFAS_DETALHADO.keys())))
+        if 'Outros' not in categorias:
+            categorias.append('Outros')
+        if 'Não Categorizado' not in categorias:
+            categorias.append('Não Categorizado')
+    elif tipo_relatorio == 'tecnico_agrupados':
+        categorias.extend(sorted(list(MAPEAMENTO_TECNICOS.keys())))
+        if 'Outros' not in categorias:
+            categorias.append('Outros')
+        if 'Não Mapeado' not in categorias:
+            categorias.append('Não Mapeado')
 
     return JsonResponse({'categorias': categorias})
