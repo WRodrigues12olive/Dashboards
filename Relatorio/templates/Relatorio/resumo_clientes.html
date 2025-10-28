@@ -4,10 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resumo Clientes</title> {# Título da aba simplificado #}
+    <title>Resumo Clientes</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .chart-container { height: 400px;  width: 650px; }
+        /* Mantendo SEU CSS original */
+        .chart-container { height: 400px;  width: 650px; } /* Largura fixa mantida */
         .table th, .table td {
             white-space: nowrap;
             padding: 0.5rem;
@@ -25,7 +26,7 @@
             margin: 0 auto;
         }
          .card-body {
-        padding: 0.30rem !important; /* antes era p-3 */
+            padding: 0.30rem !important;
         }
 
         @media (min-width: 992px) {
@@ -36,6 +37,27 @@
                 height: 100%;
                 gap: 0.5rem;
             }
+        }
+        .chart-row .chart-wrapper {
+            padding-left: 15px;
+            padding-right: 15px;
+            margin-bottom: 1.5rem;
+        }
+        .chart-title {
+            text-align: center;
+            margin-bottom: 1rem;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+         #osPorTecnicoStatusChartContainer {
+             height: 400px;
+             width: 100%;
+        }
+
+        #osPorMesResumoChartContainer {
+             height: 400px;
+             width: 100%;
         }
     </style>
 </head>
@@ -60,10 +82,15 @@
             <div class="col-auto">
                 <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
             </div>
+            <div class="col-auto ms-auto"> {# Botão Voltar alinhado à direita #}
+                 <a href="{% url 'dashboard' %}" class="btn btn-secondary btn-sm">Voltar ao Dashboard</a>
+            </div>
         </form>
 
-        <div class="row">
+        <div class="row mb-3">
+            {# Coluna da Esquerda Original - Tabela e os DOIS gráficos agora #}
             <div class="col-lg-9 col-xl-8">
+                {# Tabela - permanece como estava #}
                 <div class="card">
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -72,9 +99,9 @@
                                     <tr>
                                         <th>Cliente</th>
                                         <th>Total OS</th>
-                                        <th>Concluídas</th>
                                         <th>Em Processo</th>
                                         <th>Em Verificação</th>
+                                        <th>Concluídas</th>
                                         <th>Canceladas</th>
                                         <th>Tempo Médio Atendimento</th>
                                         <th>SLA</th>
@@ -85,12 +112,12 @@
                                     <tr>
                                         <td>{{ item.cliente }}</td>
                                         <td>{{ item.total_os }}</td>
-                                        <td>{{ item.concluidas }}</td>
                                         <td>{{ item.em_processo }}</td>
                                         <td>{{ item.em_verificacao }}</td>
+                                        <td>{{ item.concluidas }}</td>
                                         <td>{{ item.canceladas }}</td>
                                         <td>
-                                            {{ item.tempo_medio_atendimento|format_timedelta }}
+                                            {{ item.tempo_medio_atendimento|format_timedelta|default_if_none:"-" }}
                                         </td>
                                         <td>{{ item.sla_status }}</td>
                                     </tr>
@@ -104,34 +131,50 @@
                         </div>
                     </div>
                 </div>
-                <div class="chart-container history-chart-container">
-                    <h5>OS Criadas por Mês (Histórico Geral)</h5>
-                    <canvas id="osPorMesResumoChart"></canvas>
-                </div>
             </div>
-            <div class="col-lg-4 col-xl-4 d-flex flex-column justify-content-between">
-        <!-- Gráfico Tipo de Tarefa -->
+            <div class="col-lg-3 col-xl-4 d-flex flex-column">
                 <div class="card flex-fill mb-3">
                     <div class="card-body d-flex flex-column justify-content-center align-items-center p-3">
                         <h6 class="text-center mb-2">Tipo de Tarefa</h6>
-                            <div class="chart-container side-chart-container w-100 d-flex justify-content-center">
-                                <canvas id="tipoTarefaResumoChart"></canvas>
-                            </div>
+                        <div class="side-chart-container">
+                            <canvas id="tipoTarefaResumoChart"></canvas>
+                        </div>
                     </div>
                 </div>
-
-        <!-- Gráfico Origem da OS -->
                 <div class="card flex-fill">
                     <div class="card-body d-flex flex-column justify-content-center align-items-center p-3">
                         <h6 class="text-center mb-2">Origem da OS (Ticket)</h6>
-                            <div class="chart-container side-chart-container w-100 d-flex justify-content-center">
-                                <canvas id="origemOsResumoChart"></canvas>
-                            </div>
+                        <div class="side-chart-container">
+                            <canvas id="origemOsResumoChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+        <div class="row bottom-charts-row">
+            <div class="col-lg-5 mb-3">
+                <div class="card h-100">
+                     <div class="card-body" style="padding: 1rem;">
+                        <h5 class="chart-title">OS Criadas por Mês (Histórico Geral)</h5>
+                        <div id="osPorMesResumoChartContainer">
+                            <canvas id="osPorMesResumoChart"></canvas>
+                        </div>
+                     </div>
+                </div>
+            </div>
+            <div class="col-lg-7 mb-3">
+                 <div class="card h-100">
+                     <div class="card-body" style="padding: 1rem;">
+                         <h5 class="chart-title">Desempenho por Técnico (Status das OS)</h5>
+                         <div id="osPorTecnicoStatusChartContainer">
+                             <canvas id="osPorTecnicoStatusChart"></canvas>
+                         </div>
+                     </div>
+                </div>
+            </div>
+        </div>
     </div> {# Fim do container principal #}
+
     {# Scripts JavaScript #}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
@@ -143,34 +186,35 @@
     {{ tipo_tarefa_grupo_labels_periodo|json_script:"tipo_tarefa_grupo_labels_periodo" }}
     {{ tipo_tarefa_grupo_data_periodo|json_script:"tipo_tarefa_grupo_data_periodo" }}
 
-    <script>
-        Chart.register(ChartDataLabels); // Registra plugin para labels nos gráficos
-        const getDjangoData = (id) => JSON.parse(document.getElementById(id).textContent); // Função helper
+    {# JSON Scripts para o novo gráfico #}
+    {{ tecnico_status_labels_resumo|json_script:"tecnico_status_labels_resumo" }}
+    {{ tecnico_status_data_processo_resumo|json_script:"tecnico_status_data_processo_resumo" }}
+    {{ tecnico_status_data_verificacao_resumo|json_script:"tecnico_status_data_verificacao_resumo" }}
+    {{ tecnico_status_data_concluido_resumo|json_script:"tecnico_status_data_concluido_resumo" }}
 
-        // Código JavaScript para criar o novo gráfico de linha
+    <script>
+        Chart.register(ChartDataLabels);
+        const getDjangoData = (id) => JSON.parse(document.getElementById(id).textContent);
+
+        // Gráfico OS por Mês (Linha)
         new Chart(document.getElementById('osPorMesResumoChart'), {
             type: 'line',
             data: {
                 labels: getDjangoData('mes_labels'),
                 datasets: [{
-                    label: 'Nº de OS Criadas',
-                    data: getDjangoData('mes_data'),
-                    borderColor: '#fd7e14',
-                    tension: 0.1,
-                    fill: false
+                    label: 'Nº de OS Criadas', data: getDjangoData('mes_data'),
+                    borderColor: '#fd7e14', tension: 0.1, fill: false
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                    datalabels: { display: false }
-                },
-                 scales: {
-                    y: { beginAtZero: true }
-                }
+                plugins: { datalabels: { display: false } },
+                scales: { y: { beginAtZero: true } }
             }
         });
+
+        // Gráfico Tipo de Tarefa (Pizza)
         new Chart(document.getElementById('tipoTarefaResumoChart'), {
             type: 'pie',
             data: {
@@ -190,6 +234,8 @@
                  }
             }
         });
+
+        // Gráfico Origem OS (Barra Horizontal)
         new Chart(document.getElementById('origemOsResumoChart'), {
             type: 'bar',
             data: {
@@ -206,10 +252,70 @@
                  maintainAspectRatio: false,
                  plugins: {
                      datalabels: { color: '#fff', font: { weight: 'bold', size: 10 } },
-                     legend: { display: true, position: 'top' } // Mostra legenda
+                     legend: { display: true, position: 'top' }
                 }
             }
         });
+
+        // NOVO Gráfico: OS por Técnico e Status (Stacked Horizontal Bar)
+        const tecnicosStatusCtx = document.getElementById('osPorTecnicoStatusChart');
+        if (tecnicosStatusCtx) { // Verifica se o elemento <canvas> existe
+             new Chart(tecnicosStatusCtx, {
+                type: 'bar',
+                data: {
+                    labels: getDjangoData('tecnico_status_labels_resumo'), // Pega os nomes dos técnicos
+                    datasets: [
+                        {
+                            label: 'Concluído', // Legenda para a primeira barra
+                            data: getDjangoData('tecnico_status_data_concluido_resumo'), // Pega os dados de OS Concluídas
+                            backgroundColor: '#28a745', // Cor Verde
+                        },
+                        {
+                            label: 'Em Verificação', // Legenda para a segunda barra
+                            data: getDjangoData('tecnico_status_data_verificacao_resumo'), // Pega os dados de OS Em Verificação
+                            backgroundColor: '#ffc107', // Cor Amarela
+                        },
+                         {
+                            label: 'Em Processo', // Legenda para a terceira barra
+                            data: getDjangoData('tecnico_status_data_processo_resumo'), // Pega os dados de OS Em Processo
+                            backgroundColor: '#17a2b8', // Cor Azul Info
+                        },
+                    ]
+                },
+                options: {
+                    indexAxis: 'y', // Define o eixo Y como o principal (barras horizontais)
+                    responsive: true, // Torna o gráfico responsivo
+                    maintainAspectRatio: false, // Permite que o gráfico preencha o contêiner sem manter a proporção original
+                    layout: {
+                         padding: { left: 130 } // Adiciona espaço à esquerda para nomes longos de técnicos
+                    },
+                    scales: {
+                        x: { // Configurações do eixo X (horizontal - valores)
+                            stacked: true, // Habilita o empilhamento no eixo X
+                            beginAtZero: true, // Garante que o eixo comece em 0
+                            title: { display: true, text: 'Quantidade de OS' } // Adiciona um título ao eixo X
+                        },
+                        y: { // Configurações do eixo Y (vertical - técnicos)
+                            stacked: true, // Habilita o empilhamento no eixo Y
+                            ticks: { font: { size: 9 } } // Diminui o tamanho da fonte para os nomes dos técnicos
+                        }
+                    },
+                    plugins: {
+                        datalabels: { // Configurações para mostrar os valores dentro das barras
+                            color: (context) => { // Define a cor do texto baseado na cor de fundo da barra
+                                const value = context.dataset.data[context.dataIndex]; // Pega o valor do dado
+                                // Se o valor for maior que 0 e a cor for amarela, usa texto escuro, senão usa branco. Se valor for 0, transparente.
+                                return value > 0 ? (context.dataset.backgroundColor === '#ffc107' ? '#333' : 'white') : 'transparent';
+                            },
+                            font: { weight: 'bold', size: 9 }, // Fonte pequena e em negrito
+                            formatter: (value) => { return value > 0 ? value : ''; } // Mostra o valor apenas se for maior que 0
+                        },
+                        legend: { position: 'top' }, // Posição da legenda (Concluído, Em Verificação, Em Processo)
+                        tooltip: { mode: 'index', intersect: false } // Melhora a exibição do tooltip para barras empilhadas
+                    }
+                }
+            });
+        }
     </script>
 </body>
 </html>

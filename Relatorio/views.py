@@ -34,7 +34,7 @@ def resumo_clientes_view(request):
         "PARK SHOPPING CANOAS": "Park Shopping Canoas",
         "TRT": "TRT",
         "UNILEVER": "Unilever",
-        "FUNDAÇÃO BANRISUL": "Banrisul",
+        "FUNDAÇÃO BANRISUL": "FUNDAÇÃO BANRISUL",
         "CSN": "CSN",
         "CPFL": "CPFL",
         "ALPHAVILLE": "Alphaville",
@@ -94,7 +94,7 @@ def resumo_clientes_view(request):
 
         total_os = os_cliente_periodo.count()
         if total_os == 0: # Pula se não houver OS para o cliente no período
-             # Ou adiciona uma linha com zeros, se preferir
+             # Ou adiciona uma linha com zeros,
              # data_resumo.append({
              #     'cliente': cliente_display_names.get(keyword, keyword),
              #     'total_os': 0, 'concluidas': 0, 'em_processo': 0,
@@ -108,7 +108,6 @@ def resumo_clientes_view(request):
         em_verificacao = os_cliente_periodo.filter(Status='Em Verificação').count()
         canceladas = os_cliente_periodo.filter(Status='Cancelado').count()
 
-        # Calcula o tempo médio de atendimento (Criação até Envio Verificação)
         tempo_medio_atendimento = os_cliente_periodo.filter(
             Data_Enviado_Verificacao__isnull=False,
             Data_Criacao_OS__isnull=False
@@ -119,25 +118,35 @@ def resumo_clientes_view(request):
         )['avg_duration']
 
         data_resumo.append({
-            'cliente': cliente_display_names.get(keyword, keyword), # Usa o nome de exibição
+            'cliente': cliente_display_names.get(keyword, keyword),
             'total_os': total_os,
-            'concluidas': concluidas,
             'em_processo': em_processo,
             'em_verificacao': em_verificacao,
+            'concluidas': concluidas,
             'canceladas': canceladas,
-            'tempo_medio_atendimento': tempo_medio_atendimento, # Será None se não houver dados
-            'sla_status': 'N/A' # Placeholder para SLA
+            'tempo_medio_atendimento': tempo_medio_atendimento,
+            'sla_status': 'N/A'
         })
 
-    os_por_ticket_periodo = os_no_periodo_filtrado.exclude(  # Usa o queryset já filtrado por data
+    os_por_ticket_periodo = os_no_periodo_filtrado.exclude(
         Possui_Ticket__isnull=True
     ).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')  #
-    ticket_labels_periodo = [item['Possui_Ticket'] for item in os_por_ticket_periodo]  #
+    ticket_labels_periodo = [item['Possui_Ticket'] for item in os_por_ticket_periodo]
+
+    ticket_labels_periodo = []
+    for item in os_por_ticket_periodo:
+        label = item['Possui_Ticket']
+        if label == 'Sim':
+            ticket_labels_periodo.append('Com Ticket')
+        elif label == 'Não':
+            ticket_labels_periodo.append('Sem Ticket')
+        else:
+            ticket_labels_periodo.append(label)
+
     ticket_data_periodo = [item['total'] for item in os_por_ticket_periodo]  #
 
-    # --- Cálculo para Gráfico "Tipo de Tarefa" NO PERÍODO (Contagem única por OS) ---
     tarefas_tipos_no_periodo_filtrado = Tarefa.objects.filter(
-        ordem_de_servico__in=os_no_periodo_filtrado  # Usa o queryset já filtrado por data
+        ordem_de_servico__in=os_no_periodo_filtrado
     ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
                                                    ).values('ordem_de_servico_id', 'Tipo_de_Tarefa')  #
 
@@ -156,6 +165,51 @@ def resumo_clientes_view(request):
     tipo_tarefa_grupo_labels_periodo = list(contagem_grupo_tipo_tarefa_periodo.keys())  #
     tipo_tarefa_grupo_data_periodo = list(contagem_grupo_tipo_tarefa_periodo.values())
 
+    statuses_interesse_tecnico = ['Em Processo', 'Em Verificação', 'Concluído']
+    contagem_tecnico_status_resumo = defaultdict(lambda: defaultdict(int))
+
+    os_ids_filtrados = os_no_periodo_filtrado.values_list('id', flat=True)
+
+    tarefas_tecnicos_resumo = Tarefa.objects.filter(
+        ordem_de_servico_id__in=os_ids_filtrados,
+        ordem_de_servico__Status__in=statuses_interesse_tecnico
+    ).exclude(
+        Responsavel__isnull=True
+    ).exclude(
+        Responsavel__exact=''
+    ).select_related('ordem_de_servico').values(
+        'ordem_de_servico_id',
+        'ordem_de_servico__Status',
+        'Responsavel'
+    )
+
+    os_tecnicos_map_resumo = defaultdict(set)
+    os_status_map_resumo = {}
+    for tarefa in tarefas_tecnicos_resumo:
+        os_id = tarefa['ordem_de_servico_id']
+        grupo_tecnico = get_grupo_tecnico(tarefa['Responsavel'])
+        if grupo_tecnico != 'Não Mapeado' and grupo_tecnico != 'Outros':
+            os_tecnicos_map_resumo[os_id].add(grupo_tecnico)
+        os_status_map_resumo[os_id] = tarefa['ordem_de_servico__Status']
+
+    for os_id, tecnicos_da_os in os_tecnicos_map_resumo.items():
+        status_da_os = os_status_map_resumo.get(os_id)
+        if status_da_os:
+            for tecnico in tecnicos_da_os:
+                contagem_tecnico_status_resumo[tecnico][status_da_os] += 1
+
+    tecnicos_ordenados_status_resumo = sorted(
+        contagem_tecnico_status_resumo.items(),
+        key=lambda item: sum(item[1].values()),
+        reverse=True
+    )
+
+    tecnico_status_labels_resumo = [item[0] for item in tecnicos_ordenados_status_resumo]
+    tecnico_status_data_processo_resumo = [item[1].get('Em Processo', 0) for item in tecnicos_ordenados_status_resumo]
+    tecnico_status_data_verificacao_resumo = [item[1].get('Em Verificação', 0) for item in
+                                              tecnicos_ordenados_status_resumo]
+    tecnico_status_data_concluido_resumo = [item[1].get('Concluído', 0) for item in tecnicos_ordenados_status_resumo]
+
     context = {
         'data_resumo': data_resumo,
         'start_date': start_date.strftime('%Y-%m-%d'),
@@ -166,6 +220,10 @@ def resumo_clientes_view(request):
         'ticket_data_periodo': ticket_data_periodo,
         'tipo_tarefa_grupo_labels_periodo': tipo_tarefa_grupo_labels_periodo,
         'tipo_tarefa_grupo_data_periodo': tipo_tarefa_grupo_data_periodo,
+        'tecnico_status_labels_resumo': tecnico_status_labels_resumo,
+        'tecnico_status_data_processo_resumo': tecnico_status_data_processo_resumo,
+        'tecnico_status_data_verificacao_resumo': tecnico_status_data_verificacao_resumo,
+        'tecnico_status_data_concluido_resumo': tecnico_status_data_concluido_resumo,
     }
 
     return render(request, 'Relatorio/resumo_clientes.html', context)
