@@ -1,6 +1,6 @@
 from django.shortcuts import render
-from django.db.models import Count, F, Q
-from django.db.models.functions import TruncMonth, ExtractWeek, Now
+from django.db.models import Count, F, Q, Value
+from django.db.models.functions import TruncMonth, ExtractWeek, Now, Coalesce
 from django.db.models import Avg, ExpressionWrapper, DurationField
 from dateutil.relativedelta import relativedelta
 from .mappings import KEYWORDS_LOCAIS, MAPEAMENTO_PLANO_TAREFAS_DETALHADO, MAPEAMENTO_TECNICOS
@@ -17,216 +17,6 @@ import re
 import difflib
 
 
-def resumo_clientes_view(request):
-    # Lista de clientes específicos (baseado nas keywords, ajuste os nomes se necessário)
-    clientes_target_keywords = [
-        "GERDAU", "LOJA MAÇONICA", "HOSPITAL DE CLINICAS", "PARK SHOPPING CANOAS",
-        "TRT", # Assumindo que TRT4 é o keyword para TRT
-        "UNILEVER",
-        "FUNDAÇÃO BANRISUL", # Keyword para Banrisul
-        "CSN", "CPFL", "ALPHAVILLE", "ASSEMBLEIA"
-    ]
-    # Mapeamento de keyword para nome de exibição (opcional, para nomes mais amigáveis)
-    cliente_display_names = {
-        "GERDAU": "Gerdau",
-        "LOJA MAÇONICA": "Loja Maçônica",
-        "HOSPITAL DE CLINICAS": "Hospital de Clínicas",
-        "PARK SHOPPING CANOAS": "Park Shopping Canoas",
-        "TRT": "TRT",
-        "UNILEVER": "Unilever",
-        "FUNDAÇÃO BANRISUL": "FUNDAÇÃO BANRISUL",
-        "CSN": "CSN",
-        "CPFL": "CPFL",
-        "ALPHAVILLE": "Alphaville",
-        "ASSEMBLEIA": "Assembleia Legislativa" # Exemplo de nome mais completo
-    }
-
-
-    # --- Tratamento das Datas ---
-    today = datetime.now().date()
-    # Data padrão: 6 meses atrás (primeiro dia daquele mês)
-    default_start_date = (today - relativedelta(months=6)).replace(day=1)
-    default_end_date = today
-
-    # Obtém datas do GET ou usa os padrões
-    start_date_str = request.GET.get('start_date', default_start_date.strftime('%Y-%m-%d'))
-    end_date_str = request.GET.get('end_date', default_end_date.strftime('%Y-%m-%d'))
-
-    try:
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        # Adiciona 1 dia ao end_date para incluir o dia todo na query (__lt)
-        # Ou ajusta para o fim do dia se preferir usar __lte
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-        end_date_query = end_date + timedelta(days=1) # Para usar com __lt
-        # Ou: end_date_query = datetime.combine(end_date, datetime.max.time()) # Para usar com __lte
-    except (ValueError, TypeError):
-        start_date = default_start_date
-        end_date = default_end_date
-        end_date_query = end_date + timedelta(days=1)
-        # Ou: end_date_query = datetime.combine(end_date, datetime.max.time())
-
-    os_no_periodo_filtrado = OrdemDeServico.objects.filter(
-        Data_Criacao_OS__gte=start_date,
-        Data_Criacao_OS__lt=end_date_query
-    )
-
-    os_por_mes = (
-        OrdemDeServico.objects  # Começa com todas as OS
-        .annotate(mes=TruncMonth('Data_Criacao_OS'))  # Agrupa por mês
-        .values('mes')  # Seleciona o mês
-        .annotate(total=Count('id'))  # Conta OSs por mês
-        .order_by('mes')  # Ordena pelo mês
-    )  #
-    mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes if d['mes']]  # Formata 'Mês/Ano' #
-    mes_data = [d['total'] for d in os_por_mes if d['mes']]
-
-    # --- Cálculo dos Dados por Cliente ---
-    data_resumo = []
-
-    for keyword in clientes_target_keywords:
-        # Filtra OSs do cliente no período
-        os_cliente_periodo = OrdemDeServico.objects.filter(
-            Local_Empresa__icontains=keyword,
-            Data_Criacao_OS__gte=start_date,
-            Data_Criacao_OS__lt=end_date_query # Usa __lt com o dia seguinte
-            # Ou: Data_Criacao_OS__lte=end_date_query # Se usou datetime.combine
-        )
-
-        total_os = os_cliente_periodo.count()
-        if total_os == 0: # Pula se não houver OS para o cliente no período
-             # Ou adiciona uma linha com zeros,
-             # data_resumo.append({
-             #     'cliente': cliente_display_names.get(keyword, keyword),
-             #     'total_os': 0, 'concluidas': 0, 'em_processo': 0,
-             #     'em_verificacao': 0, 'canceladas': 0,
-             #     'tempo_medio_atendimento': None, 'sla_status': 'N/A'
-             # })
-             continue
-
-        concluidas = os_cliente_periodo.filter(Status='Concluído').count()
-        em_processo = os_cliente_periodo.filter(Status='Em Processo').count()
-        em_verificacao = os_cliente_periodo.filter(Status='Em Verificação').count()
-        canceladas = os_cliente_periodo.filter(Status='Cancelado').count()
-
-        tempo_medio_atendimento = os_cliente_periodo.filter(
-            Data_Enviado_Verificacao__isnull=False,
-            Data_Criacao_OS__isnull=False
-        ).aggregate(
-            avg_duration=Avg(
-                ExpressionWrapper(F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'), output_field=DurationField())
-            )
-        )['avg_duration']
-
-        data_resumo.append({
-            'cliente': cliente_display_names.get(keyword, keyword),
-            'total_os': total_os,
-            'em_processo': em_processo,
-            'em_verificacao': em_verificacao,
-            'concluidas': concluidas,
-            'canceladas': canceladas,
-            'tempo_medio_atendimento': tempo_medio_atendimento,
-            'sla_status': 'N/A'
-        })
-
-    os_por_ticket_periodo = os_no_periodo_filtrado.exclude(
-        Possui_Ticket__isnull=True
-    ).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')  #
-    ticket_labels_periodo = [item['Possui_Ticket'] for item in os_por_ticket_periodo]
-
-    ticket_labels_periodo = []
-    for item in os_por_ticket_periodo:
-        label = item['Possui_Ticket']
-        if label == 'Sim':
-            ticket_labels_periodo.append('Com Ticket')
-        elif label == 'Não':
-            ticket_labels_periodo.append('Sem Ticket')
-        else:
-            ticket_labels_periodo.append(label)
-
-    ticket_data_periodo = [item['total'] for item in os_por_ticket_periodo]  #
-
-    tarefas_tipos_no_periodo_filtrado = Tarefa.objects.filter(
-        ordem_de_servico__in=os_no_periodo_filtrado
-    ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
-                                                   ).values('ordem_de_servico_id', 'Tipo_de_Tarefa')  #
-
-    grupos_tipo_por_os_periodo = defaultdict(set)
-    for tarefa_data in tarefas_tipos_no_periodo_filtrado:
-        os_id = tarefa_data['ordem_de_servico_id']  #
-        tipo_tarefa = tarefa_data['Tipo_de_Tarefa']  #
-        grupo_tipo = get_grupo_tipo_tarefa(tipo_tarefa)  #
-        grupos_tipo_por_os_periodo[os_id].add(grupo_tipo)  #
-
-    contagem_grupo_tipo_tarefa_periodo = defaultdict(int)
-    for os_id, grupos_da_os in grupos_tipo_por_os_periodo.items():
-        for grupo in grupos_da_os:  #
-            contagem_grupo_tipo_tarefa_periodo[grupo] += 1  #
-
-    tipo_tarefa_grupo_labels_periodo = list(contagem_grupo_tipo_tarefa_periodo.keys())  #
-    tipo_tarefa_grupo_data_periodo = list(contagem_grupo_tipo_tarefa_periodo.values())
-
-    statuses_interesse_tecnico = ['Em Processo', 'Em Verificação', 'Concluído']
-    contagem_tecnico_status_resumo = defaultdict(lambda: defaultdict(int))
-
-    os_ids_filtrados = os_no_periodo_filtrado.values_list('id', flat=True)
-
-    tarefas_tecnicos_resumo = Tarefa.objects.filter(
-        ordem_de_servico_id__in=os_ids_filtrados,
-        ordem_de_servico__Status__in=statuses_interesse_tecnico
-    ).exclude(
-        Responsavel__isnull=True
-    ).exclude(
-        Responsavel__exact=''
-    ).select_related('ordem_de_servico').values(
-        'ordem_de_servico_id',
-        'ordem_de_servico__Status',
-        'Responsavel'
-    )
-
-    os_tecnicos_map_resumo = defaultdict(set)
-    os_status_map_resumo = {}
-    for tarefa in tarefas_tecnicos_resumo:
-        os_id = tarefa['ordem_de_servico_id']
-        grupo_tecnico = get_grupo_tecnico(tarefa['Responsavel'])
-        if grupo_tecnico != 'Não Mapeado' and grupo_tecnico != 'Outros':
-            os_tecnicos_map_resumo[os_id].add(grupo_tecnico)
-        os_status_map_resumo[os_id] = tarefa['ordem_de_servico__Status']
-
-    for os_id, tecnicos_da_os in os_tecnicos_map_resumo.items():
-        status_da_os = os_status_map_resumo.get(os_id)
-        if status_da_os:
-            for tecnico in tecnicos_da_os:
-                contagem_tecnico_status_resumo[tecnico][status_da_os] += 1
-
-    tecnicos_ordenados_status_resumo = sorted(
-        contagem_tecnico_status_resumo.items(),
-        key=lambda item: sum(item[1].values()),
-        reverse=True
-    )
-
-    tecnico_status_labels_resumo = [item[0] for item in tecnicos_ordenados_status_resumo]
-    tecnico_status_data_processo_resumo = [item[1].get('Em Processo', 0) for item in tecnicos_ordenados_status_resumo]
-    tecnico_status_data_verificacao_resumo = [item[1].get('Em Verificação', 0) for item in
-                                              tecnicos_ordenados_status_resumo]
-    tecnico_status_data_concluido_resumo = [item[1].get('Concluído', 0) for item in tecnicos_ordenados_status_resumo]
-
-    context = {
-        'data_resumo': data_resumo,
-        'start_date': start_date.strftime('%Y-%m-%d'),
-        'end_date': end_date.strftime('%Y-%m-%d'),
-        'mes_labels': mes_labels,
-        'mes_data': mes_data,
-        'ticket_labels_periodo': ticket_labels_periodo,
-        'ticket_data_periodo': ticket_data_periodo,
-        'tipo_tarefa_grupo_labels_periodo': tipo_tarefa_grupo_labels_periodo,
-        'tipo_tarefa_grupo_data_periodo': tipo_tarefa_grupo_data_periodo,
-        'tecnico_status_labels_resumo': tecnico_status_labels_resumo,
-        'tecnico_status_data_processo_resumo': tecnico_status_data_processo_resumo,
-        'tecnico_status_data_verificacao_resumo': tecnico_status_data_verificacao_resumo,
-        'tecnico_status_data_concluido_resumo': tecnico_status_data_concluido_resumo,
-    }
-
-    return render(request, 'Relatorio/resumo_clientes.html', context)
 
 
 
@@ -290,6 +80,193 @@ def get_grupo_local(local_str):
         if indice != -1 and indice < menor_indice:
             menor_indice, melhor_match = indice, keyword.title()
     return melhor_match if melhor_match else 'Outros'
+
+def resumo_clientes_view(request):
+    clientes_target_keywords_upper = [
+        "GERDAU", "LOJA MAÇONICA", "HOSPITAL DE CLINICAS", "PARK SHOPPING CANOAS",
+        "TRT", "UNILEVER", "FUNDAÇÃO BANRISUL", "CSN", "CPFL", "ALPHAVILLE", "ASSEMBLEIA"
+    ]
+
+    clientes_target_formatados = [kw.title() for kw in clientes_target_keywords_upper]
+
+    # --- Tratamento das Datas (sem alterações) ---
+    today = datetime.now().date()
+    default_start_date = (today - relativedelta(months=6)).replace(day=1)
+    default_end_date = today
+    start_date_str = request.GET.get('start_date', default_start_date.strftime('%Y-%m-%d'))
+    end_date_str = request.GET.get('end_date', default_end_date.strftime('%Y-%m-%d'))
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        end_date_query = end_date + timedelta(days=1)
+    except (ValueError, TypeError):
+        start_date = default_start_date
+        end_date = default_end_date
+        end_date_query = end_date + timedelta(days=1)
+
+    os_no_periodo_filtrado = OrdemDeServico.objects.filter(
+        Data_Criacao_OS__gte=start_date,
+        Data_Criacao_OS__lt=end_date_query
+    )
+
+    # Gráfico OS por Mês (sem alterações)
+    os_por_mes = (
+        OrdemDeServico.objects
+        .annotate(mes=TruncMonth('Data_Criacao_OS'))
+        .values('mes')
+        .annotate(total=Count('id'))
+        .order_by('mes')
+    )
+    mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes if d['mes']]
+    mes_data = [d['total'] for d in os_por_mes if d['mes']]
+
+    # --- Cálculo dos Dados por Cliente ---
+    # **** ALTERAÇÃO AQUI: Usar um dicionário para agrupar os dados ****
+    dados_agrupados_por_cliente = defaultdict(lambda: {
+        'total_os': 0, 'em_processo': 0, 'em_verificacao': 0,
+        'concluidas': 0, 'canceladas': 0,
+        'soma_tempo_atendimento': timedelta(0), 'contagem_tempo_atendimento': 0,
+        'sla_status': 'N/A' # Você pode querer recalcular isso depois
+    })
+
+    os_no_periodo = OrdemDeServico.objects.filter(
+        Data_Criacao_OS__gte=start_date,
+        Data_Criacao_OS__lt=end_date_query
+    ).annotate(
+        # Calcula a duração, tratando valores nulos para evitar erros
+        tempo_atendimento_calculado=ExpressionWrapper(
+            Coalesce(F('Data_Enviado_Verificacao'), Value(None)) - Coalesce(F('Data_Criacao_OS'), Value(None)),
+            output_field=DurationField()
+        )
+    ).values(  # Pega os campos necessários
+        'Local_Empresa', 'Status', 'tempo_atendimento_calculado'
+    )
+
+
+    # Agrupa os resultados no dicionário
+    for os_data in os_no_periodo:
+        cliente_grupo = get_grupo_local(os_data['Local_Empresa'])  # Aplica a função de agrupamento
+
+        # **** ALTERAÇÃO: Verifica se o grupo formatado está na lista de formatados ****
+        if cliente_grupo in clientes_target_formatados:
+            grupo_data = dados_agrupados_por_cliente[cliente_grupo]
+            grupo_data['total_os'] += 1
+            if os_data['Status'] == 'Concluído':
+                grupo_data['concluidas'] += 1
+            elif os_data['Status'] == 'Em Processo':
+                grupo_data['em_processo'] += 1
+            elif os_data['Status'] == 'Em Verificação':
+                grupo_data['em_verificacao'] += 1
+            elif os_data['Status'] == 'Cancelado':
+                grupo_data['canceladas'] += 1
+
+            # Somente adiciona ao cálculo da média se o tempo foi calculado
+            if os_data['tempo_atendimento_calculado'] is not None:
+                grupo_data['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
+                grupo_data['contagem_tempo_atendimento'] += 1
+
+    # Formata a lista final para o template
+    data_resumo = []
+    for cliente, dados in dados_agrupados_por_cliente.items():
+        tempo_medio = None
+        if dados['contagem_tempo_atendimento'] > 0:
+            tempo_medio = dados['soma_tempo_atendimento'] / dados['contagem_tempo_atendimento']
+
+        data_resumo.append({
+            'cliente': cliente,
+            'total_os': dados['total_os'],
+            'em_processo': dados['em_processo'],
+            'em_verificacao': dados['em_verificacao'],
+            'concluidas': dados['concluidas'],
+            'canceladas': dados['canceladas'],
+            'tempo_medio_atendimento': tempo_medio,
+            'sla_status': dados['sla_status']
+        })
+
+    data_resumo.sort(key=lambda item: item['cliente'])
+
+    # --- Restante do código da view (gráficos, contexto, etc. - sem alterações) ---
+    # Gráfico OS por Ticket (sem alterações)
+    os_por_ticket_periodo = os_no_periodo_filtrado.exclude(
+        Possui_Ticket__isnull=True
+    ).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')
+    ticket_labels_periodo = []
+    for item in os_por_ticket_periodo:
+        label = item['Possui_Ticket']
+        if label == 'Sim': ticket_labels_periodo.append('Com Ticket')
+        elif label == 'Não': ticket_labels_periodo.append('Sem Ticket')
+        else: ticket_labels_periodo.append(label)
+    ticket_data_periodo = [item['total'] for item in os_por_ticket_periodo]
+
+    # Gráfico Tipo de Tarefa (sem alterações)
+    tarefas_tipos_no_periodo_filtrado = Tarefa.objects.filter(
+        ordem_de_servico__in=os_no_periodo_filtrado
+    ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
+                                                   ).values('ordem_de_servico_id', 'Tipo_de_Tarefa')
+    grupos_tipo_por_os_periodo = defaultdict(set)
+    for tarefa_data in tarefas_tipos_no_periodo_filtrado:
+        os_id = tarefa_data['ordem_de_servico_id']
+        tipo_tarefa = tarefa_data['Tipo_de_Tarefa']
+        grupo_tipo = get_grupo_tipo_tarefa(tipo_tarefa)
+        grupos_tipo_por_os_periodo[os_id].add(grupo_tipo)
+    contagem_grupo_tipo_tarefa_periodo = defaultdict(int)
+    for os_id, grupos_da_os in grupos_tipo_por_os_periodo.items():
+        for grupo in grupos_da_os:
+            contagem_grupo_tipo_tarefa_periodo[grupo] += 1
+    tipo_tarefa_grupo_labels_periodo = list(contagem_grupo_tipo_tarefa_periodo.keys())
+    tipo_tarefa_grupo_data_periodo = list(contagem_grupo_tipo_tarefa_periodo.values())
+
+    # Gráfico Desempenho por Técnico (sem alterações)
+    statuses_interesse_tecnico = ['Em Processo', 'Em Verificação', 'Concluído']
+    contagem_tecnico_status_resumo = defaultdict(lambda: defaultdict(int))
+    os_ids_filtrados = os_no_periodo_filtrado.values_list('id', flat=True)
+    tarefas_tecnicos_resumo = Tarefa.objects.filter(
+        ordem_de_servico_id__in=os_ids_filtrados,
+        ordem_de_servico__Status__in=statuses_interesse_tecnico
+    ).exclude(Responsavel__isnull=True).exclude(Responsavel__exact=''
+                                                ).select_related('ordem_de_servico').values(
+        'ordem_de_servico_id', 'ordem_de_servico__Status', 'Responsavel'
+    )
+    os_tecnicos_map_resumo = defaultdict(set)
+    os_status_map_resumo = {}
+    for tarefa in tarefas_tecnicos_resumo:
+        os_id = tarefa['ordem_de_servico_id']
+        grupo_tecnico = get_grupo_tecnico(tarefa['Responsavel'])
+        if grupo_tecnico != 'Não Mapeado' and grupo_tecnico != 'Outros':
+            os_tecnicos_map_resumo[os_id].add(grupo_tecnico)
+        os_status_map_resumo[os_id] = tarefa['ordem_de_servico__Status']
+    for os_id, tecnicos_da_os in os_tecnicos_map_resumo.items():
+        status_da_os = os_status_map_resumo.get(os_id)
+        if status_da_os:
+            for tecnico in tecnicos_da_os:
+                contagem_tecnico_status_resumo[tecnico][status_da_os] += 1
+    tecnicos_ordenados_status_resumo = sorted(
+        contagem_tecnico_status_resumo.items(), key=lambda item: sum(item[1].values()), reverse=True
+    )
+    tecnico_status_labels_resumo = [item[0] for item in tecnicos_ordenados_status_resumo]
+    tecnico_status_data_processo_resumo = [item[1].get('Em Processo', 0) for item in tecnicos_ordenados_status_resumo]
+    tecnico_status_data_verificacao_resumo = [item[1].get('Em Verificação', 0) for item in tecnicos_ordenados_status_resumo]
+    tecnico_status_data_concluido_resumo = [item[1].get('Concluído', 0) for item in tecnicos_ordenados_status_resumo]
+
+    # Contexto final (sem alterações na estrutura, apenas `data_resumo` foi recalculada)
+    context = {
+        'data_resumo': data_resumo,
+        'start_date': start_date.strftime('%Y-%m-%d'),
+        'end_date': end_date.strftime('%Y-%m-%d'),
+        'mes_labels': mes_labels,
+        'mes_data': mes_data,
+        'ticket_labels_periodo': ticket_labels_periodo,
+        'ticket_data_periodo': ticket_data_periodo,
+        'tipo_tarefa_grupo_labels_periodo': tipo_tarefa_grupo_labels_periodo,
+        'tipo_tarefa_grupo_data_periodo': tipo_tarefa_grupo_data_periodo,
+        'tecnico_status_labels_resumo': tecnico_status_labels_resumo,
+        'tecnico_status_data_processo_resumo': tecnico_status_data_processo_resumo,
+        'tecnico_status_data_verificacao_resumo': tecnico_status_data_verificacao_resumo,
+        'tecnico_status_data_concluido_resumo': tecnico_status_data_concluido_resumo,
+    }
+
+    return render(request, 'Relatorio/resumo_clientes.html', context)
+
 
 # SLA de Atendimento (Início da OS) - Gerdau
 def _calculate_sla_for_group(base_queryset, ativo_code, sla_hours):
