@@ -2,48 +2,53 @@ from background_task import background
 from django.core.management import call_command
 from django.utils import timezone
 import logging
-from background_task.models import Task # Importar Task se for usar repeat
+from background_task.models import Task
 
-# Configura um logger básico (ainda útil para erros detalhados)
 logger = logging.getLogger(__name__)
 
-# Tarefa para rodar sync_fracttal (Ex: a cada 60 minutos)
+# Tarefa para rodar sync_fracttal
 @background(schedule=10)
-def run_sync_fracttal():
-    # --- PRINT ADICIONADO ---
+def run_sync_fracttal(repeat_seconds=None): # <-- Adicione 'repeat_seconds'
     print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Iniciando run_sync_fracttal...")
-    # --- FIM PRINT ---
-    logger.info(f"Iniciando tarefa agendada: sync_fracttal às {timezone.now()}") # Log opcional
+    logger.info(f"Iniciando tarefa agendada: sync_fracttal às {timezone.now()}")
     try:
         call_command('sync_fracttal')
-        # --- PRINT ADICIONADO ---
         print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Chamada a sync_fracttal concluída.")
-        # --- FIM PRINT ---
-        logger.info("Tarefa sync_fracttal concluída com sucesso.") # Log opcional
+        logger.info("Tarefa sync_fracttal concluída com sucesso.")
     except Exception as e:
-        # --- PRINT ADICIONADO ---
         print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: ERRO ao chamar sync_fracttal: {e}")
-        # --- FIM PRINT ---
-        logger.error(f"Erro ao executar sync_fracttal: {e}", exc_info=True) # Log detalhado do erro
+        logger.error(f"Erro ao executar sync_fracttal: {e}", exc_info=True)
+    finally:
+        # --- INÍCIO DA CORREÇÃO ---
+        # Se 'repeat_seconds' foi passado, reagende a tarefa.
+        if repeat_seconds:
+            next_run = timezone.now() + timezone.timedelta(seconds=repeat_seconds)
+            print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Reagendando run_sync_fracttal para {next_run}.")
+            # Chama a si mesma para a próxima execução
+            run_sync_fracttal(repeat_seconds=repeat_seconds, schedule=next_run)
+        # --- FIM DA CORREÇÃO ---
 
-# Tarefa para rodar update_active_os (Ex: a cada 15 minutos)
+
+# Tarefa para rodar update_active_os
 @background(schedule=10)
-def run_update_active_os():
-    # --- PRINT ADICIONADO ---
+def run_update_active_os(repeat_seconds=None): # <-- Adicione 'repeat_seconds'
     print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Iniciando run_update_active_os...")
-    # --- FIM PRINT ---
-    logger.info(f"Iniciando tarefa agendada: update_active_os às {timezone.now()}") # Log opcional
+    logger.info(f"Iniciando tarefa agendada: update_active_os às {timezone.now()}")
     try:
         call_command('update_active_os')
-        # --- PRINT ADICIONADO ---
         print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Chamada a update_active_os concluída.")
-        # --- FIM PRINT ---
-        logger.info("Tarefa update_active_os concluída com sucesso.") # Log opcional
+        logger.info("Tarefa update_active_os concluída com sucesso.")
     except Exception as e:
-        # --- PRINT ADICIONADO ---
         print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: ERRO ao chamar update_active_os: {e}")
-        # --- FIM PRINT ---
-        logger.error(f"Erro ao executar update_active_os: {e}", exc_info=True) # Log detalhado do erro
+        logger.error(f"Erro ao executar update_active_os: {e}", exc_info=True)
+    finally:
+        # --- INÍCIO DA CORREÇÃO ---
+        # Se 'repeat_seconds' foi passado, reagende a tarefa.
+        if repeat_seconds:
+            next_run = timezone.now() + timezone.timedelta(seconds=repeat_seconds)
+            print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Reagendando run_update_active_os para {next_run}.")
+            # Chama a si mesma para a próxima execução
+            run_update_active_os(repeat_seconds=repeat_seconds, schedule=next_run)
 
 # Tarefa para rodar validate_os_sequence (Ex: uma vez por dia, às 03:00)
 # Usando repeat=Task.DAILY para simplificar

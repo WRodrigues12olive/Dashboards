@@ -34,12 +34,14 @@
             font-weight: 600;
         }
 
-        .filter-form input {
+        .filter-form input,
+        .filter-form select {
             border: 1px solid #d0d7de;
             transition: 0.3s;
         }
 
-        .filter-form input:focus {
+        .filter-form input:focus,
+        .filter-form select:focus {
             border-color: #004aad;
             box-shadow: 0 0 0 0.15rem rgba(0,74,173,0.25);
         }
@@ -131,12 +133,19 @@
 
         #osPorMesResumoChartContainer {
             width: 100%;
-            height: 380px;
+            flex-grow: 1;
+            position: relative;
         }
 
         #osPorTecnicoStatusChartContainer {
             width: 100%;
             height: 550px;
+        }
+
+        .bottom-charts-row .card .card-body {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
         }
 
         /* ======== LAYOUT ======== */
@@ -156,25 +165,21 @@
     <div class="container-fluid mt-4">
 
         <!-- ======== FILTRO ======== -->
-        <form method="GET" action="{% url 'resumo_clientes' %}" class="row gx-2 gy-2 align-items-center filter-form">
+        <form method="GET" action="{% url 'resumo_clientes' %}" class="row gx-2 gy-2 align-items-center filter-form" id="filterForm">
+
             <div class="col-auto">
                 <div class="input-group input-group-sm">
-                    <span class="input-group-text">De</span>
-                    <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date }}">
+                    <span class="input-group-text">Período</span>
+                    <select id="periodo" name="periodo" class="form-select form-select-sm" style="width: 180px;">
+                        <option value="este_mes" {% if selected_periodo == 'este_mes' %}selected{% endif %}>Este Mês</option>
+                        <option value="1_semana" {% if selected_periodo == '1_semana' %}selected{% endif %}>Últimos 7 dias</option>
+                        <option value="3_meses" {% if selected_periodo == '3_meses' %}selected{% endif %}>Últimos 3 Meses</option>
+                        <option value="6_meses" {% if selected_periodo == '6_meses' %}selected{% endif %}>Últimos 6 Meses</option>
+                        <option value="custom" {% if selected_periodo == 'custom' %}selected{% endif %}>Selecionar Data...</option>
+                    </select>
                 </div>
             </div>
-            <div class="col-auto">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text">Até</span>
-                    <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date }}">
-                </div>
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-            </div>
-            <div class="col-auto ms-auto">
-                <a href="{% url 'dashboard' %}" class="btn btn-secondary btn-sm">Voltar ao Dashboard</a>
-            </div>
+
         </form>
 
         <!-- ======== CONTEÚDO PRINCIPAL ======== -->
@@ -384,7 +389,7 @@
                         },
                         y: {
                             stacked: true,
-                            ticks: { font: { size: 10 } }
+                            ticks: { font: { size: 9 } }
                         }
                     },
                     plugins: {
@@ -414,9 +419,20 @@
                 }
             });
         }
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('filterForm');
+            const periodoSelect = document.getElementById('periodo');
+
+            // Adiciona um 'listener' que espera por uma mudança no dropdown
+            periodoSelect.addEventListener('change', function() {
+                // Quando mudar, simplesmente envia o formulário
+                form.submit();
+            });
+        });
+
         setInterval(function() {
         window.location.reload();
-    }, 60000);
+    }, 1800000);
     </script>
 </body>
 </html>

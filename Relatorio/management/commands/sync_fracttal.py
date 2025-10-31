@@ -16,7 +16,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS("🚀 INICIANDO SINCRONIZAÇÃO TOTAL COM A API FRACTTAL 🚀"))
+        # MENSAGEM ATUALIZADA PARA REFLETIR A MUDANÇA
+        self.stdout.write(self.style.SUCCESS("🚀 INICIANDO SINCRONIZAÇÃO DE PÁGINA ÚNICA COM A API FRACTTAL 🚀"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
         try:
             token = self._obter_token_acesso()
@@ -70,11 +71,12 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(
                         f"  -> Tarefas: {resultados['tarefas_criadas']} criadas, {resultados['tarefas_atualizadas']} atualizadas."))
 
-                    if len(work_orders_na_pagina) < por_pagina:
-                        tem_mais_paginas = False
-                    else:
-                        pagina += 1
-                        time.sleep(0.2)
+                    # --- INÍCIO DA MODIFICAÇÃO ---
+                    # Força a parada do loop 'while' após a primeira página ser processada.
+                    self.stdout.write(self.style.WARNING(f"\nExecução limitada a uma página. Parando a busca."))
+                    tem_mais_paginas = False
+                    # --- FIM DA MODIFICAÇÃO ---
+
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
                     self.stdout.write(self.style.WARNING("\n⚠️ Token expirado! Solicitando um novo..."))

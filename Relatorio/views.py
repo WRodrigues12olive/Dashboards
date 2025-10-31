@@ -126,28 +126,35 @@ def resumo_clientes_view(request):
         'total_os': 0, 'em_processo': 0, 'em_verificacao': 0,
         'concluidas': 0, 'canceladas': 0,
         'soma_tempo_atendimento': timedelta(0), 'contagem_tempo_atendimento': 0,
-        'sla_status': 'N/A' # Você pode querer recalcular isso depois
+        'sla_status': 'N/A'
     })
 
-    os_no_periodo = OrdemDeServico.objects.filter(
-        Data_Criacao_OS__gte=start_date,
-        Data_Criacao_OS__lt=end_date_query
-    ).annotate(
-        # Calcula a duração, tratando valores nulos para evitar erros
+    # 2. Obter IDs do Hospital de Clínicas (HC)
+    ids_hc_ativo = set(Tarefa.objects.filter(
+        ordem_de_servico__in=os_no_periodo_filtrado,
+        Ativo__icontains='HOSPITAL DE CLINICAS'
+    ).values_list('ordem_de_servico_id', flat=True))
+
+    ids_hc_local = set(os_no_periodo_filtrado.filter(
+        Local_Empresa__icontains='HOSPITAL DE CLINICAS'
+    ).values_list('id', flat=True))
+
+    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  # Junta os IDs, sem duplicatas
+
+    # 3. Obter dados para OSs que NÃO SÃO HC
+    os_no_periodo_outros = os_no_periodo_filtrado.exclude(id__in=all_hc_ids) \
+        .annotate(
         tempo_atendimento_calculado=ExpressionWrapper(
             Coalesce(F('Data_Enviado_Verificacao'), Value(None)) - Coalesce(F('Data_Criacao_OS'), Value(None)),
             output_field=DurationField()
         )
-    ).values(  # Pega os campos necessários
-        'Local_Empresa', 'Status', 'tempo_atendimento_calculado'
-    )
+    ).values('Local_Empresa', 'Status', 'tempo_atendimento_calculado')
 
+    # 4. Loop para processar os OUTROS clientes
+    for os_data in os_no_periodo_outros:
+        cliente_grupo = get_grupo_local(os_data['Local_Empresa'])
 
-    # Agrupa os resultados no dicionário
-    for os_data in os_no_periodo:
-        cliente_grupo = get_grupo_local(os_data['Local_Empresa'])  # Aplica a função de agrupamento
-
-        # **** ALTERAÇÃO: Verifica se o grupo formatado está na lista de formatados ****
+        # Só processa se for um dos clientes alvo (Gerdau, CSN, etc.)
         if cliente_grupo in clientes_target_formatados:
             grupo_data = dados_agrupados_por_cliente[cliente_grupo]
             grupo_data['total_os'] += 1
@@ -160,11 +167,38 @@ def resumo_clientes_view(request):
             elif os_data['Status'] == 'Cancelado':
                 grupo_data['canceladas'] += 1
 
-            # Somente adiciona ao cálculo da média se o tempo foi calculado
             if os_data['tempo_atendimento_calculado'] is not None:
                 grupo_data['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
                 grupo_data['contagem_tempo_atendimento'] += 1
 
+    # 5. Obter dados para as OSs que SÃO HC (se houver alguma)
+    if all_hc_ids and 'Hospital De Clinicas' in clientes_target_formatados:
+        os_no_periodo_hc = OrdemDeServico.objects.filter(
+            id__in=all_hc_ids
+        ).annotate(
+            tempo_atendimento_calculado=ExpressionWrapper(
+                Coalesce(F('Data_Enviado_Verificacao'), Value(None)) - Coalesce(F('Data_Criacao_OS'), Value(None)),
+                output_field=DurationField()
+            )
+        ).values('Status', 'tempo_atendimento_calculado')
+
+        # 6. Loop para processar o cliente HC
+        grupo_data_hc = dados_agrupados_por_cliente['Hospital De Clinicas']
+        for os_data in os_no_periodo_hc:
+            grupo_data_hc['total_os'] += 1
+            if os_data['Status'] == 'Concluído':
+                grupo_data_hc['concluidas'] += 1
+            elif os_data['Status'] == 'Em Processo':
+                grupo_data_hc['em_processo'] += 1
+            elif os_data['Status'] == 'Em Verificação':
+                grupo_data_hc['em_verificacao'] += 1
+            elif os_data['Status'] == 'Cancelado':
+                grupo_data_hc['canceladas'] += 1
+
+            if os_data['tempo_atendimento_calculado'] is not None:
+                grupo_data_hc['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
+                grupo_data_hc['contagem_tempo_atendimento'] += 1
+                
     # Formata a lista final para o template
     data_resumo = []
     for cliente, dados in dados_agrupados_por_cliente.items():
@@ -317,20 +351,54 @@ def dashboard_view(request):
     end_date_str = request.GET.get('end_date', '')
     selected_local = request.GET.get('local_grupo', 'Todos')
 
+    # --- INÍCIO DA LÓGICA CORRIGIDA ---
 
-    ordens_no_periodo = OrdemDeServico.objects.all()
-
+    # 1. Criar o QuerySet base (apenas com filtro de data)
+    # Este 'base_qs' será usado para os gráficos que NUNCA mudam (como Histórico Geral e Comparação de Locais)
+    base_qs = OrdemDeServico.objects.all()
     if start_date_str and end_date_str:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
-            ordens_no_periodo = ordens_no_periodo.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
+            base_qs = base_qs.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
         except (ValueError, TypeError):
             pass
 
+    # 2. Lógica customizada do Hospital de Clínicas (HC)
+    #    Roda SEMPRE, sobre o queryset base (filtrado por data)
+    ids_hc_ativo = set(Tarefa.objects.filter(
+        ordem_de_servico__in=base_qs,
+        Ativo__icontains='HOSPITAL DE CLINICAS'
+    ).values_list('ordem_de_servico_id', flat=True))
+
+    ids_hc_local = set(base_qs.filter(
+        Local_Empresa__icontains='HOSPITAL DE CLINICAS'
+    ).values_list('id', flat=True))
+
+    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  # Junta os IDs, sem duplicatas
+
+    # 3. Criar o QuerySet filtrado (para os cards e gráficos que MUDAM)
+    #    Este 'ordens_no_periodo' será usado para os Cards, Status, Criticidade, SLAs, etc.
+    ordens_no_periodo = base_qs  # Começa com o base
+
     if selected_local and selected_local != 'Todos':
-        ids_para_filtrar = [os['id'] for os in OrdemDeServico.objects.exclude(Local_Empresa__isnull=True).values('id', 'Local_Empresa') if get_grupo_local(os['Local_Empresa']) == selected_local]
-        ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
+        if selected_local.upper() == 'HOSPITAL DE CLINICAS':  # Comparação segura
+            # Se o usuário selecionar HC, filtramos por aqueles IDs
+            ordens_no_periodo = ordens_no_periodo.filter(id__in=all_hc_ids)
+        else:
+            # Se for outro local (ex: "Gerdau"), pegamos os IDs que:
+            # 1. Correspondem ao grupo ("Gerdau")
+            # 2. NÃO ESTÃO na lista de HC (para evitar contagem dupla)
+            ids_para_filtrar = [
+                os['id'] for os in
+                ordens_no_periodo.exclude(id__in=all_hc_ids).exclude(Local_Empresa__isnull=True).values('id',
+                                                                                                        'Local_Empresa')
+                if get_grupo_local(os['Local_Empresa']) == selected_local
+            ]
+            ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
+
+    # 4. Cálculos para os Cards e Gráficos (Status, Criticidade, Ticket, Tipo Tarefa, Técnico, SLAs, etc.)
+    #    Estes cálculos usam 'ordens_no_periodo', que agora está 100% filtrado.
 
     os_abertas_no_periodo = ordens_no_periodo.count()
     os_concluidas = ordens_no_periodo.filter(Status='Concluído').count()
@@ -339,30 +407,67 @@ def dashboard_view(request):
     os_em_verificacao = ordens_no_periodo.filter(Status='Em Verificação').count()
 
     os_por_status = ordens_no_periodo.values('Status').annotate(total=Count('Status')).order_by('-total')
-    os_por_criticidade = ordens_no_periodo.values('Nivel_de_Criticidade').annotate(total=Count('Nivel_de_Criticidade')).order_by('-total')
-    os_por_ticket = ordens_no_periodo.exclude(Possui_Ticket__isnull=True).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')
-    os_por_mes = (OrdemDeServico.objects.annotate(mes=TruncMonth('Data_Criacao_OS')).values('mes').annotate(total=Count('id')).order_by('mes'))
+    os_por_criticidade = ordens_no_periodo.values('Nivel_de_Criticidade').annotate(
+        total=Count('Nivel_de_Criticidade')).order_by('-total')
+    os_por_ticket = ordens_no_periodo.exclude(Possui_Ticket__isnull=True).values('Possui_Ticket').annotate(
+        total=Count('id')).order_by('Possui_Ticket')
 
+    # Gráfico de Mês (Histórico GERAL, não deve ser filtrado por local)
+    # Usamos 'OrdemDeServico.objects' para pegar todos os tempos
+    os_por_mes_qs = (OrdemDeServico.objects.annotate(mes=TruncMonth('Data_Criacao_OS')).values('mes').annotate(
+        total=Count('id')).order_by('mes'))
+    mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes_qs if d['mes']]
+    mes_data = [d['total'] for d in os_por_mes_qs if d['mes']]
+
+    # Status de Execução (usa 'ordens_no_periodo' filtrado)
     os_ativas = ordens_no_periodo.exclude(Status__in=['Concluído', 'Cancelado'])
-    ids_com_tarefa_in_progress = set(Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list('ordem_de_servico_id', flat=True))
-    ids_com_avanco_e_processo = set(os_ativas.filter(Status='Em Processo', Avanco_da_OS__gt=0).values_list('id', flat=True))
+    ids_com_tarefa_in_progress = set(
+        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list(
+            'ordem_de_servico_id', flat=True))
+    ids_com_avanco_e_processo = set(
+        os_ativas.filter(Status='Em Processo', Avanco_da_OS__gt=0).values_list('id', flat=True))
     em_andamento_ids = ids_com_tarefa_in_progress.union(ids_com_avanco_e_processo)
-    candidatas_pausadas_ids = set(Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='PAUSED').values_list('ordem_de_servico_id', flat=True))
+    candidatas_pausadas_ids = set(
+        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='PAUSED').values_list(
+            'ordem_de_servico_id', flat=True))
     ids_em_verificacao = set(os_ativas.filter(Status='Em Verificação').values_list('id', flat=True))
     pausadas_ids = candidatas_pausadas_ids - em_andamento_ids - ids_em_verificacao
     ids_ja_classificadas = em_andamento_ids.union(pausadas_ids)
     candidatas_restantes = os_ativas.exclude(id__in=ids_ja_classificadas)
-    nao_iniciadas_ids = set(candidatas_restantes.filter(Q(Avanco_da_OS=0) | Q(Avanco_da_OS__isnull=True), Status='Em Processo').values_list('id', flat=True))
-    em_andamento_count, pausadas_count, nao_iniciadas_count = len(em_andamento_ids), len(pausadas_ids), len(nao_iniciadas_ids)
+    nao_iniciadas_ids = set(
+        candidatas_restantes.filter(Q(Avanco_da_OS=0) | Q(Avanco_da_OS__isnull=True), Status='Em Processo').values_list(
+            'id', flat=True))
+    em_andamento_count, pausadas_count, nao_iniciadas_count = len(em_andamento_ids), len(pausadas_ids), len(
+        nao_iniciadas_ids)
 
-    contagem_por_local = (ordens_no_periodo.exclude(Local_Empresa__isnull=True).exclude(Local_Empresa__exact='').values('Local_Empresa').annotate(total=Count('id')))
+    # 5. Lógica de Agregação do Gráfico de Locais
+    #    Este gráfico NUNCA deve ser filtrado por 'selected_local'.
+    #    Ele SEMPRE mostra todos os locais (usando 'base_qs')
+
     grupos_finais = defaultdict(int)
+
+    contagem_por_local = (base_qs  # <-- Usando 'base_qs' (só data)
+                          .exclude(id__in=all_hc_ids)  # Exclui as OS de HC
+                          .exclude(Local_Empresa__isnull=True)
+                          .exclude(Local_Empresa__exact='')
+                          .values('Local_Empresa')
+                          .annotate(total=Count('id'))
+                          )
     for item in contagem_por_local:
         grupo = get_grupo_local(item['Local_Empresa'])
-        grupos_finais[grupo] += item['total']
+        # Garantia para não adicionar HC por aqui
+        if grupo.upper() != 'HOSPITAL DE CLINICAS':
+            grupos_finais[grupo] += item['total']
+
+    # Adiciona manualmente a contagem combinada de "Hospital de Clinicas"
+    if all_hc_ids:
+        grupos_finais['Hospital De Clinicas'] = len(all_hc_ids)  # Garante a capitalização correta
+
     grupos_ordenados = sorted(grupos_finais.items(), key=lambda x: x[1], reverse=True)
     local_agrupado_labels = [item[0] for item in grupos_ordenados]
     local_agrupado_data = [item[1] for item in grupos_ordenados]
+
+    # --- Restante dos cálculos (usam 'ordens_no_periodo' filtrado) ---
 
     tarefas_tipos_no_periodo = Tarefa.objects.filter(
         ordem_de_servico__in=ordens_no_periodo
@@ -373,7 +478,6 @@ def dashboard_view(request):
     )
 
     grupos_tipo_por_os = defaultdict(set)
-
     for tarefa_data in tarefas_tipos_no_periodo:
         os_id = tarefa_data['ordem_de_servico_id']
         tipo_tarefa = tarefa_data['Tipo_de_Tarefa']
@@ -384,7 +488,6 @@ def dashboard_view(request):
     for os_id, grupos_da_os in grupos_tipo_por_os.items():
         for grupo in grupos_da_os:
             contagem_grupo_tipo_tarefa[grupo] += 1
-
     tipo_tarefa_grupo_labels = list(contagem_grupo_tipo_tarefa.keys())
     tipo_tarefa_grupo_data = list(contagem_grupo_tipo_tarefa.values())
 
@@ -395,9 +498,7 @@ def dashboard_view(request):
         'ordem_de_servico_id',
         'Responsavel'
     )
-
     grupos_tecnico_por_os = defaultdict(set)
-
     for tarefa_data in tarefas_tecnicos_no_periodo:
         os_id = tarefa_data['ordem_de_servico_id']
         responsavel = tarefa_data['Responsavel']
@@ -408,38 +509,41 @@ def dashboard_view(request):
     for os_id, grupos_da_os in grupos_tecnico_por_os.items():
         for grupo in grupos_da_os:
             contagem_grupo_tecnico[grupo] += 1
-
     grupos_tecnico_ordenados = sorted(contagem_grupo_tecnico.items(), key=lambda item: item[1], reverse=True)
-
     tecnico_grupo_labels = [item[0] for item in grupos_tecnico_ordenados]
     tecnico_grupo_data = [item[1] for item in grupos_tecnico_ordenados]
 
+    # SLAs (usam 'ordens_no_periodo' filtrado)
     sla_atendimento_c0 = _calculate_sla_for_group(ordens_no_periodo, '(C0)', 3)
     sla_atendimento_c1 = _calculate_sla_for_group(ordens_no_periodo, '(C1)', 12)
     sla_atendimento_c2 = _calculate_sla_for_group(ordens_no_periodo, '(C2)', 24)
-    
+
     sla_resolucao_c0 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C0)', 8)
     sla_resolucao_c1 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C1)', 24)
     sla_resolucao_c2 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C2)', 48)
 
     sla_parkshopping_data = _calculate_parkshopping_sla(ordens_no_periodo, 24)
-
     sla_cpfl_data = _calculate_cpfl_sla(ordens_no_periodo, 72)
 
+    # Gráfico Semanal (Histórico GERAL, não deve ser filtrado)
     anos_disponiveis = OrdemDeServico.objects.values_list('Ano_Criacao', flat=True).distinct().order_by('-Ano_Criacao')
     selected_year_weekly = request.GET.get('selected_year_weekly')
     weekly_labels, weekly_data_points = [], []
     if selected_year_weekly:
         try:
             selected_year_weekly = int(selected_year_weekly)
-            weekly_counts_from_db = (OrdemDeServico.objects.filter(Ano_Criacao=selected_year_weekly).annotate(semana=ExtractWeek('Data_Criacao_OS')).values('semana').annotate(total=Count('id')).order_by('semana'))
+            weekly_counts_from_db = (OrdemDeServico.objects.filter(Ano_Criacao=selected_year_weekly).annotate(
+                semana=ExtractWeek('Data_Criacao_OS')).values('semana').annotate(total=Count('id')).order_by('semana'))
             counts_dict = {item['semana']: item['total'] for item in weekly_counts_from_db}
-            weekly_labels, weekly_data_points = [f"Sem {i}" for i in range(1, 54)], [counts_dict.get(i, 0) for i in range(1, 54)]
+            weekly_labels, weekly_data_points = [f"Sem {i}" for i in range(1, 54)], [counts_dict.get(i, 0) for i in
+                                                                                     range(1, 54)]
         except (ValueError, TypeError):
             selected_year_weekly = None
 
+    # Lista de locais para o dropdown (Estático, OK)
     grupos_de_local_disponiveis = ['Todos'] + sorted([kw.title() for kw in KEYWORDS_LOCAIS] + ['Outros'])
 
+    # Contexto final
     context = {
         'os_abertas_no_periodo': os_abertas_no_periodo, 'os_concluidas': os_concluidas,
         'os_em_processo': os_em_processo,
@@ -450,18 +554,25 @@ def dashboard_view(request):
         'criticidade_data': [item['total'] for item in os_por_criticidade],
         'ticket_labels': [item['Possui_Ticket'] for item in os_por_ticket],
         'ticket_data': [item['total'] for item in os_por_ticket],
-        'mes_labels': [d['mes'].strftime('%b/%Y') for d in os_por_mes if d['mes']],
-        'mes_data': [d['total'] for d in os_por_mes if d['mes']],
+
+        'mes_labels': mes_labels,  # <- Corrigido (usando query separada)
+        'mes_data': mes_data,  # <- Corrigido (usando query separada)
+
         'execucao_status_labels': ['Em Andamento', 'Pausadas', 'Não Iniciadas'],
         'execucao_status_data': [em_andamento_count, pausadas_count, nao_iniciadas_count],
-        'local_agrupado_labels': local_agrupado_labels, 'local_agrupado_data': local_agrupado_data,
+
+        'local_agrupado_labels': local_agrupado_labels,  # <- Corrigido
+        'local_agrupado_data': local_agrupado_data,  # <- Corrigido
+
         'start_date': start_date_str, 'end_date': end_date_str,
         'tipo_tarefa_grupo_labels': tipo_tarefa_grupo_labels,
         'tipo_tarefa_grupo_data': tipo_tarefa_grupo_data,
         'anos_disponiveis': anos_disponiveis, 'selected_year_weekly': selected_year_weekly,
         'weekly_labels': weekly_labels, 'weekly_data_points': weekly_data_points,
-        'sla_atendimento_c0_data': sla_atendimento_c0, 'sla_atendimento_c1_data': sla_atendimento_c1, 'sla_atendimento_c2_data': sla_atendimento_c2,
-        'sla_resolucao_c0_data': sla_resolucao_c0, 'sla_resolucao_c1_data': sla_resolucao_c1, 'sla_resolucao_c2_data': sla_resolucao_c2,
+        'sla_atendimento_c0_data': sla_atendimento_c0, 'sla_atendimento_c1_data': sla_atendimento_c1,
+        'sla_atendimento_c2_data': sla_atendimento_c2,
+        'sla_resolucao_c0_data': sla_resolucao_c0, 'sla_resolucao_c1_data': sla_resolucao_c1,
+        'sla_resolucao_c2_data': sla_resolucao_c2,
         'sla_parkshopping_data': sla_parkshopping_data,
         'sla_cpfl_data': sla_cpfl_data,
         'grupos_de_local_disponiveis': grupos_de_local_disponiveis,
