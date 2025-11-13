@@ -16,27 +16,26 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        # MENSAGEM ATUALIZADA PARA REFLETIR A MUDANÇA
-        self.stdout.write(self.style.SUCCESS("🚀 INICIANDO SINCRONIZAÇÃO DE PÁGINA ÚNICA COM A API FRACTTAL 🚀"))
+        self.stdout.write(self.style.SUCCESS("INICIANDO SINCRONIZAÇÃO DE PÁGINA ÚNICA COM A API FRACTTAL 🚀"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
         try:
             token = self._obter_token_acesso()
             self._buscar_e_salvar_work_orders(token)
             self.stdout.write(self.style.SUCCESS("\n" + "=" * 60))
-            self.stdout.write(self.style.SUCCESS("✅ PROCESSO DE SINCRONIZAÇÃO FINALIZADO COM SUCESSO!"))
+            self.stdout.write(self.style.SUCCESS("PROCESSO DE SINCRONIZAÇÃO FINALIZADO COM SUCESSO!"))
             self.stdout.write(self.style.SUCCESS("=" * 60))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"\n❌ ERRO CRÍTICO DURANTE A EXECUÇÃO: {e}"))
+            self.stdout.write(self.style.ERROR(f"\n ERRO CRÍTICO DURANTE A EXECUÇÃO: {e}"))
 
     def _obter_token_acesso(self):
-        self.stdout.write("🔑 Obtendo token de acesso...")
+        self.stdout.write("Obtendo token de acesso...")
         try:
             auth = (settings.FRACTTAL_CLIENT_ID, settings.FRACTTAL_CLIENT_SECRET)
             data = {"grant_type": "client_credentials", "scope": "api"}
             response = requests.post(self.TOKEN_URL, auth=auth, data=data)
             response.raise_for_status()
             token = response.json()["access_token"]
-            self.stdout.write(self.style.SUCCESS("✅ Token obtido com sucesso!"))
+            self.stdout.write(self.style.SUCCESS("Token obtido com sucesso!"))
             return token
         except requests.exceptions.RequestException as e:
             raise Exception(f"Erro crítico ao obter token: {e}")
@@ -50,7 +49,7 @@ class Command(BaseCommand):
 
         while tem_mais_paginas:
             url = f"{self.BASE_URL}/work_orders?page={pagina}&per_page={por_pagina}"
-            self.stdout.write(f"\n📄 Buscando página {pagina}...")
+            self.stdout.write(f"\n Buscando página {pagina}...")
 
             try:
                 response = requests.get(url, headers=headers)
@@ -58,7 +57,7 @@ class Command(BaseCommand):
                 work_orders_na_pagina = response.json().get("data", [])
 
                 if not work_orders_na_pagina:
-                    self.stdout.write(self.style.WARNING("📭 Fim dos registros."))
+                    self.stdout.write(self.style.WARNING("Fim dos registros."))
                     tem_mais_paginas = False
                 else:
                     resultados = self._processar_pagina(work_orders_na_pagina)
@@ -71,18 +70,15 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(
                         f"  -> Tarefas: {resultados['tarefas_criadas']} criadas, {resultados['tarefas_atualizadas']} atualizadas."))
 
-                    # --- INÍCIO DA MODIFICAÇÃO ---
-                    # Força a parada do loop 'while' após a primeira página ser processada.
                     self.stdout.write(self.style.WARNING(f"\nExecução limitada a uma página. Parando a busca."))
                     tem_mais_paginas = False
-                    # --- FIM DA MODIFICAÇÃO ---
 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    self.stdout.write(self.style.WARNING("\n⚠️ Token expirado! Solicitando um novo..."))
+                    self.stdout.write(self.style.WARNING("\n Token expirado! Solicitando um novo..."))
                     token = self._obter_token_acesso()
                     headers["Authorization"] = f"Bearer {token}"
-                    self.stdout.write(f"🔄 Tentando buscar a página {pagina} novamente...")
+                    self.stdout.write(f" Tentando buscar a página {pagina} novamente...")
                     continue
                 else:
                     raise Exception(f"Erro HTTP inesperado: {e}")
@@ -90,7 +86,7 @@ class Command(BaseCommand):
                 raise Exception(f"Erro de conexão: {e}")
 
         self.stdout.write("-" * 60)
-        self.stdout.write(f"🎉 Busca finalizada!")
+        self.stdout.write(f"   Busca finalizada!")
         self.stdout.write(f"   Ordens de Serviço: {total_os_criadas} criadas, {total_os_atualizadas} atualizadas.")
         self.stdout.write(f"   Tarefas: {total_tarefas_criadas} criadas, {total_tarefas_atualizadas} atualizadas.")
 
@@ -104,7 +100,6 @@ class Command(BaseCommand):
             if not wo_folio or not id_tarefa_api:
                 continue
 
-            # --- Processa todas as datas ---
             data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
             data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
             data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
@@ -143,7 +138,7 @@ class Command(BaseCommand):
                 'Dia_Inicio': data_inicio.day if data_inicio else None,
                 'Hora_Inicio': data_inicio.time() if data_inicio else None,
 
-                # --- NOVOS CAMPOS DE DATA ADICIONADOS ---
+                # Data de Envio para Verificação
                 'Data_Enviado_Verificacao': data_verificacao,
                 'Data_Programada': data_programada,
             }
@@ -175,7 +170,6 @@ class Command(BaseCommand):
 
         return contadores
 
-    # --- Funções de ajuda (Helpers) ---
     def _parse_e_converter_datetime(self, date_string):
         if not date_string: return None
         try:

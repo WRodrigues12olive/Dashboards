@@ -16,10 +16,7 @@ import unicodedata
 import re
 import difflib
 
-
-
-
-
+# Normalização de texto para mapeamento
 def normalize_text(s: str) -> str:
     if not s:
         return ''
@@ -45,7 +42,7 @@ for grupo, tipos in MAPEAMENTO_PLANO_TAREFAS_DETALHADO.items():
         tipo_normalizado = ' '.join(tipo.strip().split()).lower()
         TIPO_TAREFA_PARA_GRUPO[tipo_normalizado] = grupo
 
-
+# Categorização Técnico
 def get_grupo_tecnico(responsavel_str):
     if not responsavel_str:
         return 'Não Mapeado'
@@ -65,12 +62,14 @@ def get_grupo_tecnico(responsavel_str):
 
     return 'Outros'
 
+# Categorização Tipo de Tarefa
 def get_grupo_tipo_tarefa(tipo_tarefa_str):
     if not tipo_tarefa_str:
         return 'Não Categorizado'
     tipo_normalizado = ' '.join(tipo_tarefa_str.strip().split()).lower()
     return TIPO_TAREFA_PARA_GRUPO.get(tipo_normalizado, 'Outros')
 
+# Categorização Local
 def get_grupo_local(local_str):
     if not local_str: return 'Outros'
     local_upper = local_str.upper()
@@ -81,7 +80,8 @@ def get_grupo_local(local_str):
             menor_indice, melhor_match = indice, keyword.title()
     return melhor_match if melhor_match else 'Outros'
 
-def resumo_clientes_view(request):
+# View da Página Overview
+def Overview_view(request):
     clientes_target_keywords_upper = [
         "GERDAU", "LOJA MAÇONICA", "HOSPITAL DE CLINICAS", "PARK SHOPPING CANOAS",
         "TRT", "UNILEVER", "FUNDAÇÃO BANRISUL", "CSN", "CPFL", "ALPHAVILLE", "ASSEMBLEIA"
@@ -89,27 +89,50 @@ def resumo_clientes_view(request):
 
     clientes_target_formatados = [kw.title() for kw in clientes_target_keywords_upper]
 
-    # --- Tratamento das Datas (sem alterações) ---
+    # Tratamento das Datas 
     today = datetime.now().date()
-    default_start_date = (today - relativedelta(months=6)).replace(day=1)
-    default_end_date = today
-    start_date_str = request.GET.get('start_date', default_start_date.strftime('%Y-%m-%d'))
-    end_date_str = request.GET.get('end_date', default_end_date.strftime('%Y-%m-%d'))
-    try:
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-        end_date_query = end_date + timedelta(days=1)
-    except (ValueError, TypeError):
-        start_date = default_start_date
-        end_date = default_end_date
-        end_date_query = end_date + timedelta(days=1)
+    selected_periodo = request.GET.get('periodo', '6_meses')
+    
+    start_date_str = request.GET.get('start_date', '')
+    end_date_str = request.GET.get('end_date', '')
+
+    if selected_periodo == 'este_mes':
+        start_date = today.replace(day=1)
+        end_date = today
+    elif selected_periodo == '1_semana':
+        start_date = today - timedelta(days=6)
+        end_date = today
+    elif selected_periodo == '3_meses':
+        start_date = today - relativedelta(months=3)
+        end_date = today
+    elif selected_periodo == '6_meses':
+        start_date = today - relativedelta(months=6)
+        end_date = today
+    elif selected_periodo == 'custom':
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            start_date = (today - relativedelta(months=6)).replace(day=1)
+            end_date = today
+    else:
+        selected_periodo = '6_meses'
+        start_date = today - relativedelta(months=6)
+        end_date = today
+
+    end_date_query = end_date + timedelta(days=1)
+
+    if not start_date_str:
+        start_date_str = start_date.strftime('%Y-%m-%d')
+    if not end_date_str:
+        end_date_str = end_date.strftime('%Y-%m-%d')
 
     os_no_periodo_filtrado = OrdemDeServico.objects.filter(
         Data_Criacao_OS__gte=start_date,
         Data_Criacao_OS__lt=end_date_query
     )
 
-    # Gráfico OS por Mês (sem alterações)
+    # Gráfico OS por Mês
     os_por_mes = (
         OrdemDeServico.objects
         .annotate(mes=TruncMonth('Data_Criacao_OS'))
@@ -120,8 +143,7 @@ def resumo_clientes_view(request):
     mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes if d['mes']]
     mes_data = [d['total'] for d in os_por_mes if d['mes']]
 
-    # --- Cálculo dos Dados por Cliente ---
-    # **** ALTERAÇÃO AQUI: Usar um dicionário para agrupar os dados ****
+    # Cálculo dos Dados por Cliente
     dados_agrupados_por_cliente = defaultdict(lambda: {
         'total_os': 0, 'em_processo': 0, 'em_verificacao': 0,
         'concluidas': 0, 'canceladas': 0,
@@ -129,7 +151,7 @@ def resumo_clientes_view(request):
         'sla_status': 'N/A'
     })
 
-    # 2. Obter IDs do Hospital de Clínicas (HC)
+    # Exceção Hospital de Clínicas Busca Por Ativo e Local
     ids_hc_ativo = set(Tarefa.objects.filter(
         ordem_de_servico__in=os_no_periodo_filtrado,
         Ativo__icontains='HOSPITAL DE CLINICAS'
@@ -139,9 +161,8 @@ def resumo_clientes_view(request):
         Local_Empresa__icontains='HOSPITAL DE CLINICAS'
     ).values_list('id', flat=True))
 
-    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  # Junta os IDs, sem duplicatas
+    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  
 
-    # 3. Obter dados para OSs que NÃO SÃO HC
     os_no_periodo_outros = os_no_periodo_filtrado.exclude(id__in=all_hc_ids) \
         .annotate(
         tempo_atendimento_calculado=ExpressionWrapper(
@@ -150,11 +171,10 @@ def resumo_clientes_view(request):
         )
     ).values('Local_Empresa', 'Status', 'tempo_atendimento_calculado')
 
-    # 4. Loop para processar os OUTROS clientes
+    # Busca por Local_Empresa
     for os_data in os_no_periodo_outros:
         cliente_grupo = get_grupo_local(os_data['Local_Empresa'])
 
-        # Só processa se for um dos clientes alvo (Gerdau, CSN, etc.)
         if cliente_grupo in clientes_target_formatados:
             grupo_data = dados_agrupados_por_cliente[cliente_grupo]
             grupo_data['total_os'] += 1
@@ -171,7 +191,7 @@ def resumo_clientes_view(request):
                 grupo_data['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
                 grupo_data['contagem_tempo_atendimento'] += 1
 
-    # 5. Obter dados para as OSs que SÃO HC (se houver alguma)
+    # 5. Obter dados para as OSs que SÃO HC 
     if all_hc_ids and 'Hospital De Clinicas' in clientes_target_formatados:
         os_no_periodo_hc = OrdemDeServico.objects.filter(
             id__in=all_hc_ids
@@ -198,13 +218,40 @@ def resumo_clientes_view(request):
             if os_data['tempo_atendimento_calculado'] is not None:
                 grupo_data_hc['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
                 grupo_data_hc['contagem_tempo_atendimento'] += 1
-                
+    
+    #SLAs
+    sla_data_gerdau_c0 = _calculate_resolution_sla_for_group(os_no_periodo_filtrado, '(C0)', 8)
+    sla_data_gerdau_c1 = _calculate_resolution_sla_for_group(os_no_periodo_filtrado, '(C1)', 24)
+    sla_data_gerdau_c2 = _calculate_resolution_sla_for_group(os_no_periodo_filtrado, '(C2)', 48)
+    
+    sla_total_gerdau = {
+        'atendido': sla_data_gerdau_c0['atendido'] + sla_data_gerdau_c1['atendido'] + sla_data_gerdau_c2['atendido'],
+        'nao_atendido': sla_data_gerdau_c0['nao_atendido'] + sla_data_gerdau_c1['nao_atendido'] + sla_data_gerdau_c2['nao_atendido']
+    }
+    
+    sla_data_parkshopping = _calculate_parkshopping_sla(os_no_periodo_filtrado, 24)
+    sla_data_cpfl = _calculate_cpfl_sla(os_no_periodo_filtrado, 72)
+    
+    sla_map_final = {
+        'Gerdau': sla_total_gerdau,
+        'Park Shopping Canoas': sla_data_parkshopping,
+        'Cpfl': sla_data_cpfl
+    }
+
     # Formata a lista final para o template
     data_resumo = []
     for cliente, dados in dados_agrupados_por_cliente.items():
         tempo_medio = None
         if dados['contagem_tempo_atendimento'] > 0:
             tempo_medio = dados['soma_tempo_atendimento'] / dados['contagem_tempo_atendimento']
+
+        sla_info = sla_map_final.get(cliente) 
+        sla_cumprido = "N/A"
+        sla_violado = "N/A"  
+        
+        if sla_info and (sla_info['atendido'] > 0 or sla_info['nao_atendido'] > 0):
+            sla_cumprido = sla_info['atendido']
+            sla_violado = sla_info['nao_atendido']
 
         data_resumo.append({
             'cliente': cliente,
@@ -214,13 +261,13 @@ def resumo_clientes_view(request):
             'concluidas': dados['concluidas'],
             'canceladas': dados['canceladas'],
             'tempo_medio_atendimento': tempo_medio,
-            'sla_status': dados['sla_status']
+            'sla_cumprido': sla_cumprido, 
+            'sla_violado': sla_violado   
         })
 
     data_resumo.sort(key=lambda item: item['cliente'])
 
-    # --- Restante do código da view (gráficos, contexto, etc. - sem alterações) ---
-    # Gráfico OS por Ticket (sem alterações)
+    # Gráfico OS por Ticket 
     os_por_ticket_periodo = os_no_periodo_filtrado.exclude(
         Possui_Ticket__isnull=True
     ).values('Possui_Ticket').annotate(total=Count('id')).order_by('Possui_Ticket')
@@ -232,7 +279,7 @@ def resumo_clientes_view(request):
         else: ticket_labels_periodo.append(label)
     ticket_data_periodo = [item['total'] for item in os_por_ticket_periodo]
 
-    # Gráfico Tipo de Tarefa (sem alterações)
+    # Gráfico Tipo de Tarefa
     tarefas_tipos_no_periodo_filtrado = Tarefa.objects.filter(
         ordem_de_servico__in=os_no_periodo_filtrado
     ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
@@ -250,7 +297,7 @@ def resumo_clientes_view(request):
     tipo_tarefa_grupo_labels_periodo = list(contagem_grupo_tipo_tarefa_periodo.keys())
     tipo_tarefa_grupo_data_periodo = list(contagem_grupo_tipo_tarefa_periodo.values())
 
-    # Gráfico Desempenho por Técnico (sem alterações)
+    # Gráfico Desempenho por Técnico
     statuses_interesse_tecnico = ['Em Processo', 'Em Verificação', 'Concluído']
     contagem_tecnico_status_resumo = defaultdict(lambda: defaultdict(int))
     os_ids_filtrados = os_no_periodo_filtrado.values_list('id', flat=True)
@@ -282,11 +329,11 @@ def resumo_clientes_view(request):
     tecnico_status_data_verificacao_resumo = [item[1].get('Em Verificação', 0) for item in tecnicos_ordenados_status_resumo]
     tecnico_status_data_concluido_resumo = [item[1].get('Concluído', 0) for item in tecnicos_ordenados_status_resumo]
 
-    # Contexto final (sem alterações na estrutura, apenas `data_resumo` foi recalculada)
     context = {
         'data_resumo': data_resumo,
         'start_date': start_date.strftime('%Y-%m-%d'),
         'end_date': end_date.strftime('%Y-%m-%d'),
+        'selected_periodo': selected_periodo,
         'mes_labels': mes_labels,
         'mes_data': mes_data,
         'ticket_labels_periodo': ticket_labels_periodo,
@@ -299,7 +346,7 @@ def resumo_clientes_view(request):
         'tecnico_status_data_concluido_resumo': tecnico_status_data_concluido_resumo,
     }
 
-    return render(request, 'Relatorio/resumo_clientes.html', context)
+    return render(request, 'Relatorio/Overview.html', context)
 
 
 # SLA de Atendimento (Início da OS) - Gerdau
@@ -335,6 +382,7 @@ def _calculate_parkshopping_sla(base_queryset, sla_hours):
     nao_atendido = query_with_duration.filter(tempo_decorrido__gt=timedelta(hours=sla_hours)).count()
     return {'atendido': atendido, 'nao_atendido': nao_atendido}
 
+# SLA de Resolução - CPFL
 def _calculate_cpfl_sla(base_queryset, sla_hours):
     query = base_queryset.filter(
         Local_Empresa__icontains='CPFL',

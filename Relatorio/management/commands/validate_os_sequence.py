@@ -24,13 +24,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS("🚀 INICIANDO VALIDAÇÃO DE INTEGRIDADE DA SEQUÊNCIA DE OS 🚀"))
+        self.stdout.write(self.style.SUCCESS(" INICIANDO VALIDAÇÃO DE INTEGRIDADE DA SEQUÊNCIA DE OS 🚀"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
 
         try:
             self._obter_token_acesso()
 
-            self.stdout.write("🔍 Analisando o banco de dados local para encontrar lacunas...")
+            self.stdout.write(" Analisando o banco de dados local para encontrar lacunas...")
             all_os_folios = OrdemDeServico.objects.values_list('OS', flat=True)
 
             existing_numbers = set()
@@ -50,7 +50,7 @@ class Command(BaseCommand):
             missing_numbers = sorted(list(all_possible_numbers - existing_numbers))
 
             if not missing_numbers:
-                self.stdout.write(self.style.SUCCESS("✅ Nenhuma lacuna encontrada. A sequência está completa!"))
+                self.stdout.write(self.style.SUCCESS(" Nenhuma lacuna encontrada. A sequência está completa!"))
                 return
 
             self.stdout.write(self.style.WARNING(f"  -> Encontradas {len(missing_numbers)} OS faltantes na sequência."))
@@ -59,22 +59,22 @@ class Command(BaseCommand):
             self._processar_resultados_finais(resultados)
 
             self.stdout.write(self.style.SUCCESS("\n" + "=" * 60))
-            self.stdout.write(self.style.SUCCESS("✅ PROCESSO DE VALIDAÇÃO FINALIZADO!"))
+            self.stdout.write(self.style.SUCCESS(" PROCESSO DE VALIDAÇÃO FINALIZADO!"))
             self.stdout.write(self.style.SUCCESS("=" * 60))
 
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"\n❌ ERRO CRÍTICO DURANTE A EXECUÇÃO: {e}"))
+            self.stdout.write(self.style.ERROR(f"\n ERRO CRÍTICO DURANTE A EXECUÇÃO: {e}"))
 
     def _obter_token_acesso(self):
         with self.token_storage['lock']:
-            self.stdout.write("🔑 Obtendo/Renovando token de acesso...")
+            self.stdout.write(" Obtendo/Renovando token de acesso...")
             try:
                 auth = (settings.FRACTTAL_CLIENT_ID, settings.FRACTTAL_CLIENT_SECRET)
                 data = {"grant_type": "client_credentials", "scope": "api"}
                 response = requests.post(self.TOKEN_URL, auth=auth, data=data)
                 response.raise_for_status()
                 self.token_storage['token'] = response.json()["access_token"]
-                self.stdout.write(self.style.SUCCESS("✅ Token obtido!"))
+                self.stdout.write(self.style.SUCCESS(" Token obtido!"))
             except requests.exceptions.RequestException as e:
                 raise Exception(f"Erro ao obter token: {e}")
 
@@ -140,7 +140,7 @@ class Command(BaseCommand):
         id_tarefa_api = item.get('id_work_orders_tasks')
         if not wo_folio or not id_tarefa_api: return
 
-        # --- Processa todas as datas ---
+        # Processa todas as datas
         data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
         data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
         data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
@@ -171,7 +171,6 @@ class Command(BaseCommand):
             'Dia_Inicio': data_inicio.day if data_inicio else None,
             'Hora_Inicio': data_inicio.time() if data_inicio else None,
 
-            # --- NOVOS CAMPOS DE DATA ADICIONADOS ---
             'Data_Enviado_Verificacao': data_verificacao,
             'Data_Programada': data_programada,
         }
@@ -186,7 +185,6 @@ class Command(BaseCommand):
         }
         Tarefa.objects.update_or_create(id_tarefa_api=id_tarefa_api, defaults=dados_tarefa)
 
-    # --- Funções de ajuda (Helpers) ---
     def _parse_e_converter_datetime(self, date_string):
         if not date_string: return None
         try:

@@ -19,8 +19,6 @@ def run_sync_fracttal(repeat_seconds=None): # <-- Adicione 'repeat_seconds'
         print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: ERRO ao chamar sync_fracttal: {e}")
         logger.error(f"Erro ao executar sync_fracttal: {e}", exc_info=True)
     finally:
-        # --- INÍCIO DA CORREÇÃO ---
-        # Se 'repeat_seconds' foi passado, reagende a tarefa.
         if repeat_seconds:
             next_run = timezone.now() + timezone.timedelta(seconds=repeat_seconds)
             print(f"[{timezone.now().strftime('%Y-%m-%d %H:%M:%S')}] background_task: Reagendando run_sync_fracttal para {next_run}.")

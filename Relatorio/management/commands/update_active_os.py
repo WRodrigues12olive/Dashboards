@@ -21,18 +21,16 @@ class Command(BaseCommand):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Armazenamento seguro para o token em ambiente com threads
         self.token_storage = {'token': None, 'lock': threading.Lock()}
 
     def handle(self, *args, **kwargs):
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS("🚀 INICIANDO ATUALIZAÇÃO DE OS ATIVAS 🚀"))
+        self.stdout.write(self.style.SUCCESS("INICIANDO ATUALIZAÇÃO DE OS ATIVAS 🚀"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
 
         try:
-            self._obter_token_acesso()  # Obtém o token inicial
+            self._obter_token_acesso()
 
-            # 1. Busca no banco de dados local as OS que precisam de verificação
             os_para_verificar = OrdemDeServico.objects.filter(
                 Q(Status='Em Processo') | Q(Status='Em Verificação')
             )
@@ -41,19 +39,17 @@ class Command(BaseCommand):
             total_a_verificar = len(lista_os_folios)
 
             if total_a_verificar == 0:
-                self.stdout.write(self.style.SUCCESS("✅ Nenhuma OS ativa para verificar. Tudo em dia!"))
+                self.stdout.write(self.style.SUCCESS("Nenhuma OS ativa para verificar. Tudo em dia!"))
                 return
 
-            self.stdout.write(f"🔍 Encontradas {total_a_verificar} OS ativas para sincronizar.")
+            self.stdout.write(f"Encontradas {total_a_verificar} OS ativas para sincronizar.")
 
-            # 2. Executa a busca paralela na API
             resultados = self._executar_busca_paralela(lista_os_folios)
 
-            # 3. Processa os resultados e atualiza o banco
             self._processar_resultados_finais(resultados)
 
             self.stdout.write(self.style.SUCCESS("\n" + "=" * 60))
-            self.stdout.write(self.style.SUCCESS("✅ PROCESSO DE ATUALIZAÇÃO FINALIZADO!"))
+            self.stdout.write(self.style.SUCCESS("PROCESSO DE ATUALIZAÇÃO FINALIZADO!"))
             self.stdout.write(self.style.SUCCESS("=" * 60))
 
         except Exception as e:
@@ -61,14 +57,14 @@ class Command(BaseCommand):
 
     def _obter_token_acesso(self):
         with self.token_storage['lock']:
-            self.stdout.write("🔑 Obtendo/Renovando token de acesso...")
+            self.stdout.write("Obtendo/Renovando token de acesso...")
             try:
                 auth = (settings.FRACTTAL_CLIENT_ID, settings.FRACTTAL_CLIENT_SECRET)
                 data = {"grant_type": "client_credentials", "scope": "api"}
                 response = requests.post(self.TOKEN_URL, auth=auth, data=data)
                 response.raise_for_status()
                 self.token_storage['token'] = response.json()["access_token"]
-                self.stdout.write(self.style.SUCCESS("✅ Token obtido com sucesso!"))
+                self.stdout.write(self.style.SUCCESS("Token obtido com sucesso!"))
             except requests.exceptions.RequestException as e:
                 raise Exception(f"Erro crítico ao obter token: {e}")
 
@@ -80,9 +76,8 @@ class Command(BaseCommand):
         try:
             response = requests.get(url, headers=headers, timeout=20)
 
-            if response.status_code == 401:  # Token expirado
+            if response.status_code == 401: 
                 self._obter_token_acesso()
-                # Tenta novamente com o novo token
                 headers = {"Authorization": f"Bearer {self.token_storage['token']}"}
                 response = requests.get(url, headers=headers, timeout=20)
 
@@ -108,12 +103,10 @@ class Command(BaseCommand):
         atualizadas, nao_encontradas, com_erro = 0, 0, 0
         for res in resultados:
             if res['status'] == 'SUCCESS':
-                # Os dados de uma OS podem vir em múltiplos itens de tarefa
                 for item in res['data'].get('data', []):
                     self._atualizar_db_com_item(item)
                 atualizadas += 1
             elif res['status'] == '404':
-                # A OS não existe mais na Fracttal, então cancelamos localmente
                 OrdemDeServico.objects.filter(OS=res['wo_folio']).update(Status='Cancelado')
                 nao_encontradas += 1
             else:
@@ -132,7 +125,6 @@ class Command(BaseCommand):
         if not wo_folio or not id_tarefa_api:
             return
 
-        # --- Processa todas as datas, incluindo as novas ---
         data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
         data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
         data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
@@ -171,7 +163,7 @@ class Command(BaseCommand):
             'Dia_Inicio': data_inicio.day if data_inicio else None,
             'Hora_Inicio': data_inicio.time() if data_inicio else None,
 
-            # --- NOVOS CAMPOS DE DATA ---
+
             'Data_Enviado_Verificacao': data_verificacao,
             'Data_Programada': data_programada,
         }
@@ -188,7 +180,6 @@ class Command(BaseCommand):
         }
         Tarefa.objects.update_or_create(id_tarefa_api=id_tarefa_api, defaults=dados_tarefa)
 
-    # --- Funções de ajuda (Helpers) ---
     def _parse_e_converter_datetime(self, date_string):
         if not date_string: return None
         try:
