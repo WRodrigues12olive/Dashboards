@@ -238,7 +238,6 @@ def Overview_view(request):
         'Cpfl': sla_data_cpfl
     }
 
-    # Formata a lista final para o template
     data_resumo = []
     for cliente, dados in dados_agrupados_por_cliente.items():
         tempo_medio = None
@@ -399,10 +398,6 @@ def dashboard_view(request):
     end_date_str = request.GET.get('end_date', '')
     selected_local = request.GET.get('local_grupo', 'Todos')
 
-    # --- INÍCIO DA LÓGICA CORRIGIDA ---
-
-    # 1. Criar o QuerySet base (apenas com filtro de data)
-    # Este 'base_qs' será usado para os gráficos que NUNCA mudam (como Histórico Geral e Comparação de Locais)
     base_qs = OrdemDeServico.objects.all()
     if start_date_str and end_date_str:
         try:
@@ -413,7 +408,6 @@ def dashboard_view(request):
             pass
 
     # 2. Lógica customizada do Hospital de Clínicas (HC)
-    #    Roda SEMPRE, sobre o queryset base (filtrado por data)
     ids_hc_ativo = set(Tarefa.objects.filter(
         ordem_de_servico__in=base_qs,
         Ativo__icontains='HOSPITAL DE CLINICAS'
@@ -423,20 +417,14 @@ def dashboard_view(request):
         Local_Empresa__icontains='HOSPITAL DE CLINICAS'
     ).values_list('id', flat=True))
 
-    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  # Junta os IDs, sem duplicatas
-
+    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  
     # 3. Criar o QuerySet filtrado (para os cards e gráficos que MUDAM)
-    #    Este 'ordens_no_periodo' será usado para os Cards, Status, Criticidade, SLAs, etc.
-    ordens_no_periodo = base_qs  # Começa com o base
+    ordens_no_periodo = base_qs 
 
     if selected_local and selected_local != 'Todos':
-        if selected_local.upper() == 'HOSPITAL DE CLINICAS':  # Comparação segura
-            # Se o usuário selecionar HC, filtramos por aqueles IDs
+        if selected_local.upper() == 'HOSPITAL DE CLINICAS':  
             ordens_no_periodo = ordens_no_periodo.filter(id__in=all_hc_ids)
         else:
-            # Se for outro local (ex: "Gerdau"), pegamos os IDs que:
-            # 1. Correspondem ao grupo ("Gerdau")
-            # 2. NÃO ESTÃO na lista de HC (para evitar contagem dupla)
             ids_para_filtrar = [
                 os['id'] for os in
                 ordens_no_periodo.exclude(id__in=all_hc_ids).exclude(Local_Empresa__isnull=True).values('id',
@@ -445,8 +433,7 @@ def dashboard_view(request):
             ]
             ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
 
-    # 4. Cálculos para os Cards e Gráficos (Status, Criticidade, Ticket, Tipo Tarefa, Técnico, SLAs, etc.)
-    #    Estes cálculos usam 'ordens_no_periodo', que agora está 100% filtrado.
+    # 4. Cálculos para os Cards e Gráficos
 
     os_abertas_no_periodo = ordens_no_periodo.count()
     os_concluidas = ordens_no_periodo.filter(Status='Concluído').count()
@@ -461,7 +448,6 @@ def dashboard_view(request):
         total=Count('id')).order_by('Possui_Ticket')
 
     # Gráfico de Mês (Histórico GERAL, não deve ser filtrado por local)
-    # Usamos 'OrdemDeServico.objects' para pegar todos os tempos
     os_por_mes_qs = (OrdemDeServico.objects.annotate(mes=TruncMonth('Data_Criacao_OS')).values('mes').annotate(
         total=Count('id')).order_by('mes'))
     mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes_qs if d['mes']]
@@ -489,13 +475,11 @@ def dashboard_view(request):
         nao_iniciadas_ids)
 
     # 5. Lógica de Agregação do Gráfico de Locais
-    #    Este gráfico NUNCA deve ser filtrado por 'selected_local'.
-    #    Ele SEMPRE mostra todos os locais (usando 'base_qs')
 
     grupos_finais = defaultdict(int)
 
-    contagem_por_local = (base_qs  # <-- Usando 'base_qs' (só data)
-                          .exclude(id__in=all_hc_ids)  # Exclui as OS de HC
+    contagem_por_local = (base_qs  
+                          .exclude(id__in=all_hc_ids)  
                           .exclude(Local_Empresa__isnull=True)
                           .exclude(Local_Empresa__exact='')
                           .values('Local_Empresa')
@@ -503,19 +487,15 @@ def dashboard_view(request):
                           )
     for item in contagem_por_local:
         grupo = get_grupo_local(item['Local_Empresa'])
-        # Garantia para não adicionar HC por aqui
         if grupo.upper() != 'HOSPITAL DE CLINICAS':
             grupos_finais[grupo] += item['total']
 
-    # Adiciona manualmente a contagem combinada de "Hospital de Clinicas"
     if all_hc_ids:
-        grupos_finais['Hospital De Clinicas'] = len(all_hc_ids)  # Garante a capitalização correta
+        grupos_finais['Hospital De Clinicas'] = len(all_hc_ids)  
 
     grupos_ordenados = sorted(grupos_finais.items(), key=lambda x: x[1], reverse=True)
     local_agrupado_labels = [item[0] for item in grupos_ordenados]
     local_agrupado_data = [item[1] for item in grupos_ordenados]
-
-    # --- Restante dos cálculos (usam 'ordens_no_periodo' filtrado) ---
 
     tarefas_tipos_no_periodo = Tarefa.objects.filter(
         ordem_de_servico__in=ordens_no_periodo
@@ -869,77 +849,188 @@ def format_excel_timedelta(td):
     if days > 0: return f'{days}d {hours:02}:{minutes:02}:{seconds:02}'
     return f'{hours:02}:{minutes:02}:{seconds:02}'
 
+
 def gerar_excel_view(request):
     tipo_relatorio = request.GET.get('tipo_relatorio')
     categoria = request.GET.get('categoria')
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
 
-    # Chama _get_dados_filtrados (que já inclui as anotações de tempo)
-    dados_filtrados = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date)
+    # 1. Chama _get_dados_filtrados, que já inclui as anotações de tempo
+    #    Usamos prefetch_related para otimizar a busca das tarefas relacionadas
+    dados_filtrados = _get_dados_filtrados(
+        tipo_relatorio, categoria, start_date, end_date
+    ).prefetch_related('tarefas')
 
-    # Lista base de colunas
-    colunas_excel = [
-        'OS', 'Status', 'Nivel_de_Criticidade', 'Local_Empresa', 'Criado_Por',
-        'Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS',
-        'Avanco_da_OS', 'Possui_Ticket', 'Ticket_ID', 'Observacao_OS'
+    # Lista para armazenar os dados processados para o Excel
+    dados_para_excel = []
+
+    # 2. Itera sobre as Ordens de Serviço filtradas
+    for os in dados_filtrados:
+        
+        # --- 3. Mapeamento de Cliente (incluindo lógica HC) ---
+        cliente_grupo = get_grupo_local(os.Local_Empresa)
+        is_hc = False
+        
+        # Verifica se o local já é HC
+        if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
+            is_hc = True
+        else:
+            # Verifica se alguma tarefa tem o Ativo HC (lógica de exceção)
+            try:
+                for tarefa in os.tarefas.all(): # Usa as tarefas pré-buscadas
+                    if tarefa.Ativo and 'HOSPITAL DE CLINICAS' in tarefa.Ativo.upper():
+                        is_hc = True
+                        break
+            except Exception: # Lidar com casos onde 'tarefas' pode não estar acessível
+                pass 
+
+        if is_hc:
+            cliente_grupo = 'Hospital De Clinicas' # Padroniza a capitalização
+
+        # --- 4. Mapeamento de Técnico e Tipo de Tarefa ---
+        tecnicos_set = set()
+        tipos_tarefa_set = set()
+        is_preventiva = False # Flag para SLA
+
+        try:
+            for tarefa in os.tarefas.all(): # Usa as tarefas pré-buscadas
+                if tarefa.Responsavel:
+                    tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
+                if tarefa.Tipo_de_Tarefa:
+                    tipos_tarefa_set.add(get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa))
+                    if 'Preventiva' in tarefa.Tipo_de_Tarefa:
+                        is_preventiva = True
+        except Exception:
+            pass
+            
+        tecnico_resp = ", ".join(sorted(list(tecnicos_set)))
+        tipo_tarefa = ", ".join(sorted(list(tipos_tarefa_set)))
+
+        # --- 5. Cálculo de SLA (Resolução) ---
+        sla_atendido = ""
+        sla_violado = ""
+        
+        # tempo_em_execucao e tempo_em_verificacao já foram anotados em _get_dados_filtrados
+        tempo_em_execucao_td = os.tempo_em_execucao
+        tempo_em_verificacao_td = os.tempo_em_verificacao
+
+        # SLAs só se aplicam se não for preventiva e a OS foi enviada para verificação
+        if not is_preventiva and os.Data_Enviado_Verificacao and tempo_em_execucao_td:
+            
+            if cliente_grupo == 'Gerdau':
+                # Identifica o código de ativo (C0, C1, C2)
+                ativo_code = None
+                try:
+                    tarefa_ativos = [t.Ativo for t in os.tarefas.all() if t.Ativo]
+                    if any('(C0)' in a for a in tarefa_ativos): ativo_code = '(C0)'
+                    elif any('(C1)' in a for a in tarefa_ativos): ativo_code = '(C1)'
+                    elif any('(C2)' in a for a in tarefa_ativos): ativo_code = '(C2)'
+                except Exception:
+                    pass
+
+                sla_hours_map = {'(C0)': 8, '(C1)': 24, '(C2)': 48}
+                
+                if ativo_code and ativo_code in sla_hours_map:
+                    if tempo_em_execucao_td <= timedelta(hours=sla_hours_map[ativo_code]):
+                        sla_atendido = "Sim"
+                        sla_violado = "Não"
+                    else:
+                        sla_atendido = "Não"
+                        sla_violado = "Sim"
+
+            elif cliente_grupo == 'Park Shopping Canoas':
+                if tempo_em_execucao_td <= timedelta(hours=24):
+                    sla_atendido = "Sim"
+                    sla_violado = "Não"
+                else:
+                    sla_atendido = "Não"
+                    sla_violado = "Sim"
+
+            elif cliente_grupo == 'Cpfl':
+                if tempo_em_execucao_td <= timedelta(hours=72):
+                    sla_atendido = "Sim"
+                    sla_violado = "Não"
+                else:
+                    sla_atendido = "Não"
+                    sla_violado = "Sim"
+
+        # --- 6. Monta a linha para o DataFrame ---
+        row = {
+            'OS': os.OS,
+            'Status': os.Status,
+            'Cliente': cliente_grupo,
+            'Tecnico Responsavel': tecnico_resp,
+            'Tipo de Tarefa': tipo_tarefa,
+            'Data Criação': os.Data_Criacao_OS,
+            'Data Início': os.Data_Iniciou_OS,
+            'Data Conclusão Técnica': os.Data_Enviado_Verificacao,
+            'Data Finalização': os.Data_Finalizacao_OS,
+            'Avanço (%)': os.Avanco_da_OS,
+            'Tempo em Execução': tempo_em_execucao_td,
+            'Tempo em Verificação': tempo_em_verificacao_td,
+            'SLA Atendido': sla_atendido,
+            'SLA Violado': sla_violado
+        }
+        dados_para_excel.append(row)
+
+    # --- 7. Cria o DataFrame do Pandas ---
+    df = pd.DataFrame(dados_para_excel)
+
+    # --- 8. Define a ordem final das colunas (conforme solicitado) ---
+    colunas_finais_ordenadas = [
+        'OS',
+        'Status',
+        'Cliente',
+        'Tecnico Responsavel',
+        'Tipo de Tarefa',
+        'Data Criação',
+        'Data Início',
+        'Data Conclusão Técnica',
+        'Data Finalização',
+        'Avanço (%)',
+        'Tempo em Execução',
+        'Tempo em Verificação',
+        'SLA Atendido',
+        'SLA Violado'
     ]
+    
+    # Garante que apenas colunas existentes sejam selecionadas (evita KeyErrors)
+    colunas_finais = [col for col in colunas_finais_ordenadas if col in df.columns]
 
-    # Adiciona colunas de tempo condicionalmente
-    tipos_para_incluir_tempo = ['status', 'locais_agrupados', 'plano_tarefas_agrupados']
 
-    if tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação']:
-        colunas_excel.append('tempo_em_status')
-    elif tipo_relatorio in tipos_para_incluir_tempo:
-        # Inclui os tempos de execução e verificação para os tipos selecionados
-        colunas_excel.extend(['tempo_em_execucao', 'tempo_em_verificacao'])
+    # --- 9. Formata colunas de Data e Hora (Datetime) ---
+    colunas_de_data = ['Data Criação', 'Data Início', 'Data Conclusão Técnica', 'Data Finalização']
+    for col in colunas_de_data:
+        if col in df.columns:
+            # Garante que a coluna é datetime
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+            
+            try:
+                # Converte de UTC (ou fuso atual) para America/Sao_Paulo
+                df[col] = df[col].dt.tz_convert('America/Sao_Paulo')
+            except Exception:
+                # Se falhar (ex: data 'naive' - sem fuso), apenas ignora
+                pass 
+            
+            # Formata a string SEM fuso (agora que a hora está correta)
+            df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    # Pega os valores do queryset (incluindo as anotações, se existirem)
-    dados_para_excel = dados_filtrados.values(*colunas_excel)
-    df = pd.DataFrame(list(dados_para_excel))
-
-    # Formata colunas de data
-    colunas_de_data = ['Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS']
-    for coluna in colunas_de_data:
-        if coluna in df.columns:
-             df[coluna] = df[coluna].apply(lambda x: x.tz_localize(None) if pd.notnull(x) else x)
-
-    # Formata colunas de tempo (timedelta)
-    for col in ['tempo_em_status', 'tempo_em_execucao', 'tempo_em_verificacao']:
+    # --- 10. Formata colunas de Duração (Timedelta) ---
+    for col in ['Tempo em Execução', 'Tempo em Verificação']:
         if col in df.columns:
             df[col] = df[col].apply(format_excel_timedelta)
 
-    # Dicionário base para renomear colunas
-    rename_dict = {
-        'OS': 'OS', 'Status': 'Status', 'Nivel_de_Criticidade': 'Criticidade',
-        'Local_Empresa': 'Local/Empresa', 'Criado_Por': 'Criado Por',
-        'Data_Criacao_OS': 'Data Criação', 'Data_Iniciou_OS': 'Data Início',
-        'Data_Finalizacao_OS': 'Data Finalização', 'Avanco_da_OS': 'Avanço (%)',
-        'Possui_Ticket': 'Possui Ticket?', 'Ticket_ID': 'ID do Ticket',
-        'Observacao_OS': 'Observação',
-    }
-    # Adiciona renomeação condicional para colunas de tempo
-    if tipo_relatorio == 'status' and categoria in ['Em Processo', 'Em Verificação']:
-         rename_dict['tempo_em_status'] = f"Tempo em {categoria}"
-    elif tipo_relatorio in tipos_para_incluir_tempo:
-         rename_dict['tempo_em_execucao'] = "Tempo em Execução"
-         rename_dict['tempo_em_verificacao'] = "Tempo em Verificação"
-
-    df.rename(columns=rename_dict, inplace=True)
-
-    # Formata colunas de data como string no formato desejado
-    for col in ['Data Criação', 'Data Início', 'Data Finalização']:
-        if col in df.columns:
-            # Converte para datetime (se ainda não for), tratando erros, e depois formata
-            df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    # Gera o arquivo Excel em memória
+    # --- 11. Gera o arquivo Excel em memória ---
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Relatorio')
+        # Usa o argumento 'columns' para garantir a ordem correta
+        # (Assumindo que 'colunas_finais' foi definida anteriormente)
+        df.to_excel(writer, index=False, sheet_name='Relatorio', columns=colunas_finais)
+    
     buffer.seek(0)
 
-    # Cria a resposta HTTP para download
+    # --- 12. Cria a resposta HTTP para download ---
     response = HttpResponse(
         buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
