@@ -1,5 +1,3 @@
-# Em Relatorio/models.py
-
 from django.db import models
 
 
@@ -20,13 +18,11 @@ class OrdemDeServico(models.Model):
     Data_Enviado_Verificacao = models.DateTimeField(blank=True, null=True, verbose_name="Data Enviado Verificação")
     Data_Programada = models.DateTimeField(blank=True, null=True, verbose_name="Data Programada")
 
-    # --- NOVOS CAMPOS DE DATA DE INÍCIO ---
     Data_Iniciou_OS = models.DateTimeField(blank=True, null=True, verbose_name="Data Iniciou OS")
     Ano_Inicio = models.IntegerField(blank=True, null=True)
     Mes_Inicio = models.IntegerField(blank=True, null=True)
     Dia_Inicio = models.IntegerField(blank=True, null=True)
     Hora_Inicio = models.TimeField(blank=True, null=True)
-    # ------------------------------------
 
     # Campos derivados (Criação)
     Ano_Criacao = models.IntegerField(blank=True, null=True)

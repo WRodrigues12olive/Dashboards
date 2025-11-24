@@ -28,37 +28,41 @@
                         <tr>
                             <th>OS</th>
                             <th>Status</th>
-                            <th>Criticidade</th>
-                            <th>Local/Empresa</th>
+                            <th>Cliente</th>
+                            <th>Técnico Responsável</th>
+                            <th>Tipo de Tarefa</th>
                             <th>Data Criação</th>
+                            <th>Data Início</th>
+                            <th>Data Conclusão Técnica</th>
+                            <th>Data Finalização</th>
                             <th>Avanço (%)</th>
-
-                            {% if mostrar_tempo_em_status %} <th>{{ nome_coluna_tempo }}</th>
-                            {% endif %}
-                            {% if mostrar_tempos_conclusao %} <th>Tempo em Execução</th>
-                                <th>Tempo pra Conclusão</th>
-                            {% endif %}
+                            <th>Tempo em Execução</th>
+                            <th>Tempo em Verificação</th>
+                            <th>SLA Atendido</th>
+                            <th>SLA Violado</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for os in ordens_de_servico %}
+                        {% for row in linhas %}
                         <tr>
-                            <td>{{ os.OS }}</td>
-                            <td>{{ os.Status }}</td>
-                            <td>{{ os.Nivel_de_Criticidade }}</td>
-                            <td>{{ os.Local_Empresa }}</td>
-                            <td>{{ os.Data_Criacao_OS|date:"d/m/Y H:i" }}</td>
-                            <td>{{ os.Avanco_da_OS|default_if_none:"0" }}%</td>
-
-                            {% if mostrar_tempo_em_status %} <td>{{ os.tempo_em_status|format_timedelta }}</td>
-                            {% endif %}
-                            {% if mostrar_tempos_conclusao %} <td>{{ os.tempo_em_execucao|format_timedelta }}</td>
-                                <td>{{ os.tempo_em_verificacao|format_timedelta }}</td>
-                            {% endif %}
+                            <td>{{ row.OS }}</td>
+                            <td>{{ row.Status }}</td>
+                            <td>{{ row.Cliente }}</td>
+                            <td>{{ row.Tecnico_Responsavel }}</td>
+                            <td>{{ row.Tipo_de_Tarefa }}</td>
+                            <td>{{ row.Data_Criacao }}</td>
+                            <td>{{ row.Data_Inicio }}</td>
+                            <td>{{ row.Data_Conclusao_Tecnica }}</td>
+                            <td>{{ row.Data_Finalizacao }}</td>
+                            <td>{{ row.Avanco_pct }}%</td>
+                            <td>{{ row.Tempo_em_Execucao }}</td>
+                            <td>{{ row.Tempo_em_Verificacao }}</td>
+                            <td>{{ row.SLA_Atendido }}</td>
+                            <td>{{ row.SLA_Violado }}</td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="8" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
+                            <td colspan="14" class="text-center">Nenhum registro encontrado para os filtros selecionados.</td>
                         </tr>
                         {% endfor %}
                     </tbody>

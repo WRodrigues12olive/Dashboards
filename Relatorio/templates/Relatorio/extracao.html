@@ -113,15 +113,10 @@
                 });
         });
 
-        // --- CÓDIGO QUE FALTAVA ---
-        // Este código garante que o formulário seja enviado para o lugar certo
-        // quando a opção de download é selecionada.
         const form = document.getElementById('extracaoForm');
         form.addEventListener('submit', function(event) {
             const formatoSaida = document.querySelector('input[name="formato_saida"]:checked').value;
             if (formatoSaida === 'excel') {
-                // Se a opção for excel, muda a ação do formulário para a URL de download
-                // e envia os dados como GET
                 const tipoRelatorio = document.getElementById('tipo_relatorio').value;
                 const categoria = document.getElementById('categoria').value;
                 const startDate = document.getElementById('start_date').value;
@@ -134,13 +129,10 @@
                     end_date: endDate
                 });
 
-                // Redireciona para a URL de download
                 window.location.href = `{% url 'download_excel' %}?${params.toString()}`;
 
-                // Impede o envio normal do formulário (que é POST)
                 event.preventDefault();
             }
-            // Se for 'pagina', o formulário é enviado normalmente via POST
         });
     </script>
 </body>

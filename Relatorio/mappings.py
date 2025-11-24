@@ -1,8 +1,11 @@
 KEYWORDS_LOCAIS = [
     "ADAMA", "ADM BRASIL", "ALPHAVILLE", "ARCELORMITTAL", "ASSEMBLEIA", "BALL", "BIC", "CPFL", "CSN",
-    "ENGELOG", "FITESA", "FUNDAÇÃO BANRISUL", "GERDAU", "HOSPITAL DE CLINICAS", "LOJA MAÇONICA", "M DIAS", "NEOENERGIA",
+    "ENGELOG", "FITESA", "FUNDAÇÃO BANRISUL", "HOSPITAL DE CLINICAS", "LOJA MAÇONICA", "M DIAS", "NEOENERGIA",
     "PORTO DO AÇU", "RAIZEN", "SICOOB", "SIMEC", "SUMESA", "TRÊS CORAÇÕES", "TRT", "TURIS", "UNILEVER",
-    "UFRGS IPH", "UFRGS", "PARK SHOPPING CANOAS", "CANOAS", "TRE", "Pandrol"
+    "UFRGS IPH", "UFRGS", "PARK SHOPPING CANOAS", "CANOAS", "TRE", "Pandrol", "Gerdau  Tijucas", "Gerdau Araucária", "Gerdau Araçariguama"
+    ,"Gerdau Açonorte", "Gerdau Aços Longos S.A", "Gerdau Barão", "Gerdau Caucaia", "Gerdau Cearense", "Gerdau Charqueadas", "Gerdau Corte e Dobra Armafer"
+    ,"Gerdau Corte e Dobra Chapecó", "Gerdau Corte e Dobra Suape", "Gerdau Cosigua", "Gerdau Curitiba", "Gerdau Divinópolis", "Gerdau Mogi das Cruzes"
+    ,"Gerdau Ouro Branco", "Gerdau Pindamonhangaba", "Gerdau Praia Mole", "Gerdau Sapucaia", "Gerdau São José"
 ]
 
 MAPEAMENTO_PLANO_TAREFAS_DETALHADO = {

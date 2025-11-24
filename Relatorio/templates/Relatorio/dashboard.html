@@ -59,6 +59,10 @@
             <div class="col-12 mb-4">
                 <div class="report-container">
                     <h5>Ocorrências por Local/Cliente (no período)</h5>
+                    <div id="gerdau-back" style="display:none; margin-bottom:0.5rem;">
+                        <button id="gerdau-back-btn" class="btn btn-sm btn-secondary">← Voltar</button>
+                        <span class="ms-2">Detalhes: Gerdau</span>
+                    </div>
                     <div id="osPorLocalChartContainer" class="chart-container"><canvas id="osPorLocalChart"></canvas></div>
                 </div>
             </div>
@@ -156,6 +160,8 @@
     {{ execucao_status_data|json_script:"execucao_status_data" }}
     {{ local_agrupado_labels|json_script:"local_agrupado_labels" }}
     {{ local_agrupado_data|json_script:"local_agrupado_data" }}
+    {{ gerdau_labels|json_script:"gerdau_labels" }}
+    {{ gerdau_data|json_script:"gerdau_data" }}
     {{ tipo_tarefa_grupo_labels|json_script:"tipo_tarefa_grupo_labels" }}
     {{ tipo_tarefa_grupo_data|json_script:"tipo_tarefa_grupo_data" }}
     {{ weekly_labels|json_script:"weekly_labels" }}
@@ -178,7 +184,48 @@
         Chart.register(ChartDataLabels);
         const getDjangoData = (id) => JSON.parse(document.getElementById(id).textContent);
 
-        new Chart(document.getElementById('osPorLocalChart'), { type: 'bar', data: { labels: getDjangoData('local_agrupado_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('local_agrupado_data'), backgroundColor: '#0d6efd', }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: { y: { ticks: { font: { size: 10 } } } }, plugins: { datalabels: { anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold' } } } } });
+        // Chart com drilldown de Gerdau
+        const osPorLocalCtx = document.getElementById('osPorLocalChart');
+        const aggregatedLabels = getDjangoData('local_agrupado_labels');
+        const aggregatedData = getDjangoData('local_agrupado_data');
+        const gerdauLabels = getDjangoData('gerdau_labels') || [];
+        const gerdauData = getDjangoData('gerdau_data') || [];
+
+        const osPorLocalChart = new Chart(osPorLocalCtx, {
+            type: 'bar',
+            data: { labels: aggregatedLabels, datasets: [{ label: 'Total de OS', data: aggregatedData, backgroundColor: '#0d6efd' }] },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { left: 150 } },
+                scales: { y: { ticks: { font: { size: 10 } } } },
+                plugins: { datalabels: { anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold' } } },
+            }
+        });
+
+        // Click handler para drilldown em 'Gerdau'
+        osPorLocalCtx.onclick = function(evt) {
+            const points = osPorLocalChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+            if (!points.length) return;
+            const idx = points[0].index;
+            const label = osPorLocalChart.data.labels[idx];
+            if (label === 'Gerdau' && gerdauLabels.length) {
+                osPorLocalChart.data.labels = gerdauLabels;
+                osPorLocalChart.data.datasets[0].data = gerdauData;
+                osPorLocalChart.update();
+                document.getElementById('gerdau-back').style.display = 'block';
+            }
+        };
+
+        // Botão voltar para visão agregada
+        document.getElementById('gerdau-back-btn').onclick = function() {
+            osPorLocalChart.data.labels = aggregatedLabels;
+            osPorLocalChart.data.datasets[0].data = aggregatedData;
+            osPorLocalChart.update();
+            document.getElementById('gerdau-back').style.display = 'none';
+        };
+
         new Chart(document.getElementById('osPorStatusChart'), { type: 'pie', data: { labels: getDjangoData('status_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('status_data'), backgroundColor: ['#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('osPorCriticidadeChart'), { type: 'bar', data: { labels: getDjangoData('criticidade_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('criticidade_data'), backgroundColor: '#0d6efd', }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { anchor: 'end', align: 'top', color: '#495057', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('osPorMesChart'), { type: 'line', data: { labels: getDjangoData('mes_labels'), datasets: [{ label: 'Nº de OS Criadas', data: getDjangoData('mes_data'), borderColor: '#fd7e14', tension: 0.1, fill: false }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { display: false } } } });
@@ -186,7 +233,7 @@
         new Chart(document.getElementById('TipoTarefasPorOSChart'), { type: 'pie', data: { labels: getDjangoData('tipo_tarefa_grupo_labels'), datasets: [{label: 'Total de Tarefas', data: getDjangoData('tipo_tarefa_grupo_data'), backgroundColor: ['#0d6efd', '#ffc107', '#fd7e14', '#6f42c1', '#20c997', '#dc3545', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } }});
         new Chart(document.getElementById('osPorTecnicoChart'), {type: 'bar', data: {labels: getDjangoData('tecnico_grupo_labels'), datasets: [{label: 'Total de OS', data: getDjangoData('tecnico_grupo_data'), backgroundColor: '#6f42c1',}]}, options: {indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: {y: {ticks: {font: { size: 10 } } } }, plugins: {datalabels: {anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold', size: 10 } } } } });
 
-        // --- GRÁFICOS MENORES RESTAURADOS E CORRIGIDOS ---
+        // --- GRÁFICOS MENORES ---
         new Chart(document.getElementById('execucaoStatusChart'), { type: 'doughnut', data: { labels: getDjangoData('execucao_status_labels'), datasets: [{ label: 'Contagem de OS', data: getDjangoData('execucao_status_data'), backgroundColor: ['#0d6efd', '#fd7e14', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('slaAtendimentoChart'), { type: 'bar', data: { labels: ['C0 (3h)', 'C1 (12h)', 'C2 (24h)'], datasets: [ { label: 'SLA Atendido', data: [getDjangoData('sla_atendimento_c0_data').atendido, getDjangoData('sla_atendimento_c1_data').atendido, getDjangoData('sla_atendimento_c2_data').atendido], backgroundColor: '#28a745' }, { label: 'SLA Não Atendido', data: [getDjangoData('sla_atendimento_c0_data').nao_atendido, getDjangoData('sla_atendimento_c1_data').nao_atendido, getDjangoData('sla_atendimento_c2_data').nao_atendido], backgroundColor: '#DC3545' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: 'white', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('slaResolucaoChart'), { type: 'bar', data: { labels: ['C0 (8h)', 'C1 (24h)', 'C2 (48h)'], datasets: [ { label: 'SLA Atendido', data: [getDjangoData('sla_resolucao_c0_data').atendido, getDjangoData('sla_resolucao_c1_data').atendido, getDjangoData('sla_resolucao_c2_data').atendido], backgroundColor: '#28a745' }, { label: 'SLA Não Atendido', data: [getDjangoData('sla_resolucao_c0_data').nao_atendido, getDjangoData('sla_resolucao_c1_data').nao_atendido, getDjangoData('sla_resolucao_c2_data').nao_atendido], backgroundColor: '#DC3545' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: 'white', font: { weight: 'bold' } } } } });

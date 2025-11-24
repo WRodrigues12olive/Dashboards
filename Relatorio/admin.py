@@ -29,7 +29,6 @@ class LocalEmpresaFilter(admin.SimpleListFilter):
 
 class TarefaInline(admin.TabularInline):
     model = Tarefa
-    # Adicionado 'Observacao' para visualização
     fields = ('id_tarefa_api', 'Ativo', 'Responsavel', 'Tipo_de_Tarefa', 'Duracao_Minutos', 'Status_da_Tarefa')
     readonly_fields = fields
     extra = 0
@@ -42,13 +41,10 @@ class OrdemDeServicoAdmin(admin.ModelAdmin):
 
     list_display = ('numero_os_ordenavel', 'Status', 'Local_Empresa', 'Avanco_da_OS', 'Nivel_de_Criticidade', 'Possui_Ticket')
 
-    # Adicionado 'tarefas__Responsavel' para permitir a busca por técnico
     search_fields = ('OS', 'Criado_Por', 'Ticket_ID', 'Local_Empresa', 'tarefas__Ativo', 'tarefas__Responsavel')
 
-    # Re-adicionado o filtro de empresa para melhor usabilidade, junto com o novo filtro de responsável
     list_filter = ('Status', 'Nivel_de_Criticidade', 'Possui_Ticket', LocalEmpresaFilter, 'tarefas__Responsavel', 'Ano_Criacao')
 
-    # Completando a lista de campos readonly com os que foram adicionados
     readonly_fields = (
         'OS', 'Status', 'Nivel_de_Criticidade', 'Criado_Por', 'Local_Empresa', 'Observacao_OS',
         'Data_Criacao_OS', 'Data_Iniciou_OS', 'Data_Finalizacao_OS', 'Data_Enviado_Verificacao', 'Data_Programada',
