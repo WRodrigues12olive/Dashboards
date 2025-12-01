@@ -3,6 +3,10 @@ from django.db.models import Count, F, Q, Value
 from django.db.models.functions import TruncMonth, ExtractWeek, Now, Coalesce
 from django.db.models import Avg, ExpressionWrapper, DurationField
 from dateutil.relativedelta import relativedelta
+from django.contrib.auth.views import LoginView, PasswordChangeView, LogoutView
+from django.contrib.auth.decorators import login_required
+from django.urls import reverse_lazy
+from django.contrib import messages
 from .mappings import KEYWORDS_LOCAIS, MAPEAMENTO_PLANO_TAREFAS_DETALHADO, MAPEAMENTO_TECNICOS
 from .models import OrdemDeServico, Tarefa
 from datetime import datetime, timedelta
@@ -15,6 +19,27 @@ from collections import defaultdict
 import unicodedata
 import re
 import difflib
+
+class CustomLoginView(LoginView):
+    template_name = 'Relatorio/login.html'
+    redirect_authenticated_user = True
+
+class CustomLogoutView(LogoutView):
+    next_page = reverse_lazy('login')
+
+class ForcePasswordChangeView(PasswordChangeView):
+    template_name = 'Relatorio/force_password_change.html'
+    success_url = reverse_lazy('dashboard') 
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        
+        profile = self.request.user.profile
+        profile.force_password_change = False
+        profile.save()
+        
+        messages.success(self.request, "Senha atualizada com sucesso!")
+        return response
 
 # Normalização de texto para mapeamento
 def normalize_text(s: str) -> str:
@@ -85,6 +110,7 @@ def get_grupo_local(local_str):
     return melhor_match if melhor_match else 'Outros'
 
 # View da Página Overview
+@login_required
 def Overview_view(request):
     clientes_target_keywords_upper = [
         "GERDAU", "LOJA MAÇONICA", "HOSPITAL DE CLINICAS", "PARK SHOPPING CANOAS",
@@ -182,6 +208,7 @@ def Overview_view(request):
 
         for osd in gerdau_qs:
             local = (osd.get('Local_Empresa') or '').upper()
+            # tenta encontrar keyword específica que apareça no local
             subgroup = None
             for kw in KEYWORDS_LOCAIS:
                 if kw.upper().startswith('GERDAU') and kw.upper() in local:
@@ -206,6 +233,7 @@ def Overview_view(request):
                 resumo['soma_tempo_atendimento'] += osd['tempo_atendimento_calculado']
                 resumo['contagem_tempo_atendimento'] += 1
 
+        # monta data_resumo a partir dos grupos encontrados
         data_resumo = []
         for nome, dados in grupos.items():
             tempo_medio = None
@@ -224,6 +252,7 @@ def Overview_view(request):
             })
         data_resumo.sort(key=lambda item: item['cliente'])
     else:
+        # mantém o data_resumo já gerado pela lógica anterior (agregado)
         expanded_cliente = None
 
     # Exceção Hospital de Clínicas Busca Por Ativo e Local
@@ -266,6 +295,7 @@ def Overview_view(request):
                 grupo_data['soma_tempo_atendimento'] += os_data['tempo_atendimento_calculado']
                 grupo_data['contagem_tempo_atendimento'] += 1
 
+    # 5. Obter dados para as OSs que SÃO HC 
     if all_hc_ids and 'Hospital De Clinicas' in clientes_target_formatados:
         os_no_periodo_hc = OrdemDeServico.objects.filter(
             id__in=all_hc_ids
@@ -276,7 +306,7 @@ def Overview_view(request):
             )
         ).values('Status', 'tempo_atendimento_calculado')
 
-        # Processar HC
+        # 6. Loop para processar o cliente HC
         grupo_data_hc = dados_agrupados_por_cliente['Hospital De Clinicas']
         for os_data in os_no_periodo_hc:
             grupo_data_hc['total_os'] += 1
@@ -312,6 +342,8 @@ def Overview_view(request):
         'Cpfl': sla_data_cpfl
     }
 
+    # Se estamos em modo expandido, já construímos data_resumo lá em cima (detalhado).
+    # Só construir o resumo agregado quando não estivermos expandindo um cliente.
     if not expanded_cliente:
         data_resumo = []
         for cliente, dados in dados_agrupados_por_cliente.items():
@@ -479,7 +511,7 @@ def _calculate_cpfl_sla(base_queryset, sla_hours):
     nao_atendido = query_with_duration.filter(tempo_decorrido__gt=timedelta(hours=sla_hours)).count()
     return {'atendido': atendido, 'nao_atendido': nao_atendido}
 
-
+@login_required
 def dashboard_view(request):
     start_date_str = request.GET.get('start_date', '')
     end_date_str = request.GET.get('end_date', '')
@@ -494,6 +526,7 @@ def dashboard_view(request):
         except (ValueError, TypeError):
             pass
 
+    # 2. Lógica customizada do Hospital de Clínicas (HC)
     ids_hc_ativo = set(Tarefa.objects.filter(
         ordem_de_servico__in=base_qs,
         Ativo__icontains='HOSPITAL DE CLINICAS'
@@ -504,6 +537,7 @@ def dashboard_view(request):
     ).values_list('id', flat=True))
 
     all_hc_ids = ids_hc_ativo.union(ids_hc_local)  
+    # 3. Criar o QuerySet filtrado (para os cards e gráficos que MUDAM)
     ordens_no_periodo = base_qs 
 
     if start_date_str and end_date_str:
@@ -535,6 +569,8 @@ def dashboard_view(request):
                 if get_grupo_local(os['Local_Empresa']) == selected_local
             ]
             ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
+
+    # 4. Cálculos para os Cards e Gráficos
 
     os_abertas_no_periodo = ordens_no_periodo.count()
     os_concluidas = ordens_no_periodo.filter(Status='Concluído').count()
@@ -574,6 +610,8 @@ def dashboard_view(request):
             'id', flat=True))
     em_andamento_count, pausadas_count, nao_iniciadas_count = len(em_andamento_ids), len(pausadas_ids), len(
         nao_iniciadas_ids)
+
+    # 5. Lógica de Agregação do Gráfico de Locais
 
     grupos_finais = defaultdict(int)
 
@@ -716,14 +754,14 @@ def dashboard_view(request):
         'ticket_labels': [item['Possui_Ticket'] for item in os_por_ticket],
         'ticket_data': [item['total'] for item in os_por_ticket],
 
-        'mes_labels': mes_labels, 
-        'mes_data': mes_data,  
+        'mes_labels': mes_labels,  # <- Corrigido (usando query separada)
+        'mes_data': mes_data,  # <- Corrigido (usando query separada)
 
         'execucao_status_labels': ['Em Andamento', 'Pausadas', 'Não Iniciadas'],
         'execucao_status_data': [em_andamento_count, pausadas_count, nao_iniciadas_count],
 
-        'local_agrupado_labels': local_agrupado_labels,  
-        'local_agrupado_data': local_agrupado_data,  
+        'local_agrupado_labels': local_agrupado_labels,  # <- Corrigido
+        'local_agrupado_data': local_agrupado_data,  # <- Corrigido
         'gerdau_labels': gerdau_labels,
         'gerdau_data': gerdau_data,
 
@@ -1106,12 +1144,10 @@ def gerar_excel_view(request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
 
-    # Chama _get_dados_filtrados, que já inclui as anotações de tempo
     dados_filtrados = _get_dados_filtrados(
         tipo_relatorio, categoria, start_date, end_date
     ).prefetch_related('tarefas')
 
-    # Lista para armazenar os dados processados para o Excel
     dados_para_excel = []
 
     for os in dados_filtrados:
@@ -1119,11 +1155,9 @@ def gerar_excel_view(request):
         cliente_grupo = get_grupo_local(os.Local_Empresa)
         is_hc = False
         
-        # Verifica se o local já é HC
         if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
             is_hc = True
         else:
-            # Verifica se alguma tarefa tem o Ativo HC (lógica de exceção)
             try:
                 for tarefa in os.tarefas.all(): 
                     if tarefa.Ativo and 'HOSPITAL DE CLINICAS' in tarefa.Ativo.upper():
@@ -1135,13 +1169,12 @@ def gerar_excel_view(request):
         if is_hc:
             cliente_grupo = 'Hospital De Clinicas' 
 
-        
         tecnicos_set = set()
         tipos_tarefa_set = set()
         is_preventiva = False 
 
         try:
-            for tarefa in os.tarefas.all(): 
+            for tarefa in os.tarefas.all():
                 if tarefa.Responsavel:
                     tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
                 if tarefa.Tipo_de_Tarefa:
@@ -1157,11 +1190,9 @@ def gerar_excel_view(request):
         sla_atendido = ""
         sla_violado = ""
         
-        # tempo_em_execucao e tempo_em_verificacao já foram anotados em _get_dados_filtrados
         tempo_em_execucao_td = os.tempo_em_execucao
         tempo_em_verificacao_td = os.tempo_em_verificacao
 
-        # SLAs só se aplicam se não for preventiva e a OS foi enviada para verificação
         if not is_preventiva and os.Data_Enviado_Verificacao and tempo_em_execucao_td:
             
             if cliente_grupo == 'Gerdau':
@@ -1262,7 +1293,6 @@ def gerar_excel_view(request):
     
     buffer.seek(0)
 
-    
     response = HttpResponse(
         buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )

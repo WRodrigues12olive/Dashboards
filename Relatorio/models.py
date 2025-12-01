@@ -1,5 +1,24 @@
+from django.contrib.auth.models import User
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.db import models
 
+class Profile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    force_password_change = models.BooleanField(default=True, verbose_name="Obrigar Troca de Senha")
+
+    def __str__(self):
+        return f"Perfil de {self.user.username}"
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.create(user=instance)
+
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    if hasattr(instance, 'profile'):
+        instance.profile.save()
 
 class OrdemDeServico(models.Model):
     OS = models.CharField(max_length=50, unique=True, verbose_name="OS")
@@ -18,11 +37,13 @@ class OrdemDeServico(models.Model):
     Data_Enviado_Verificacao = models.DateTimeField(blank=True, null=True, verbose_name="Data Enviado Verificação")
     Data_Programada = models.DateTimeField(blank=True, null=True, verbose_name="Data Programada")
 
+    # DATA DE INÍCIO
     Data_Iniciou_OS = models.DateTimeField(blank=True, null=True, verbose_name="Data Iniciou OS")
     Ano_Inicio = models.IntegerField(blank=True, null=True)
     Mes_Inicio = models.IntegerField(blank=True, null=True)
     Dia_Inicio = models.IntegerField(blank=True, null=True)
     Hora_Inicio = models.TimeField(blank=True, null=True)
+    # ------------------------------------
 
     # Campos derivados (Criação)
     Ano_Criacao = models.IntegerField(blank=True, null=True)

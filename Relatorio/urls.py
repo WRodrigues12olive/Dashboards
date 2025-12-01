@@ -12,4 +12,7 @@ urlpatterns = [
     path('extrair/download-excel/', views.gerar_excel_view, name='download_excel'),
     path('api/get-categorias/', views.api_get_categorias_view, name='api_get_categorias'),
     path('Overview/', views.Overview_view, name='Overview'),
+    path('login/', views.CustomLoginView.as_view(), name='login'),
+    path('logout/', views.CustomLogoutView.as_view(), name='logout'),
+    path('trocar-senha-obrigatoria/', views.ForcePasswordChangeView.as_view(), name='password_change_forced'),
 ]
