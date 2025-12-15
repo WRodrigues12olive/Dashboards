@@ -10,7 +10,14 @@ from django.core.management.base import BaseCommand
 from django.conf import settings
 from django.db.models import Q
 from Relatorio.models import OrdemDeServico, Tarefa
-
+# Importação das regras de negócio
+from Relatorio.mappings import (
+    get_grupo_local, 
+    get_local_detalhado, 
+    get_grupo_tecnico, 
+    get_grupo_tipo_tarefa,
+    get_trt_specific_name
+)
 
 class Command(BaseCommand):
     help = 'Atualiza as OS com status "Em Processo" ou "Em Verificação" buscando os dados mais recentes na API.'
@@ -119,7 +126,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  - {com_erro} OS falharam durante a busca.")
 
     def _atualizar_db_com_item(self, item):
-        """Usa a lógica de update_or_create para um item de tarefa da API."""
+        """Usa a lógica de update_or_create para um item de tarefa da API com normalização."""
         wo_folio = item.get('wo_folio')
         id_tarefa_api = item.get('id_work_orders_tasks')
         if not wo_folio or not id_tarefa_api:
@@ -132,6 +139,26 @@ class Command(BaseCommand):
         data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))
         id_request = item.get("id_request")
 
+        # --- LÓGICA DE ORGANIZAÇÃO ---
+        local_raw = item.get("parent_description")
+        ativo_raw = item.get("items_log_description")
+
+        grupo_local = get_grupo_local(local_raw)
+        local_detalhado = get_local_detalhado(local_raw)
+
+        # Regra do HC via Ativo
+        if ativo_raw and 'HOSPITAL DE CLINICAS' in ativo_raw.upper():
+            grupo_local = 'Hospital De Clinicas'
+            local_detalhado = 'Hospital De Clinicas'
+        
+        # Regra do TRT via Ativo (Safety Net)
+        elif ativo_raw and ('TRT' in ativo_raw.upper() or '4 REGIAO' in ativo_raw.upper()):
+            if grupo_local != 'TRT' or local_detalhado == 'TRT Outros':
+                novo_local = get_trt_specific_name(ativo_raw)
+                if novo_local != 'TRT Outros':
+                    grupo_local = 'TRT'
+                    local_detalhado = novo_local
+
         dados_os = {
             'Status': self._converter_status(item.get("id_status_work_order")),
             'Nivel_de_Criticidade': self._converter_criticidade(item.get("id_priorities")),
@@ -139,44 +166,52 @@ class Command(BaseCommand):
             'Avanco_da_OS': item.get("completed_percentage"),
             'Ticket_ID': id_request,
             'Possui_Ticket': "Sim" if id_request is not None else "Não",
-            'Local_Empresa': item.get("parent_description"),
+            'Local_Empresa': local_raw,
             'Observacao_OS': item.get("task_note"),
 
-            # Data de Criação
+            # Campos Normalizados
+            'Local_Agrupado': grupo_local,
+            'Local_Detalhado': local_detalhado,
+
             'Data_Criacao_OS': data_criacao,
             'Ano_Criacao': data_criacao.year if data_criacao else None,
             'Mes_Criacao': data_criacao.month if data_criacao else None,
             'Dia_Criacao': data_criacao.day if data_criacao else None,
             'Hora_Criacao': data_criacao.time() if data_criacao else None,
 
-            # Data de Finalização
             'Data_Finalizacao_OS': data_finalizacao,
             'Ano_Finalizacao': data_finalizacao.year if data_finalizacao else None,
             'Mes_Finalizacao': data_finalizacao.month if data_finalizacao else None,
             'Dia_Finalizacao': data_finalizacao.day if data_finalizacao else None,
             'Hora_Finalizacao': data_finalizacao.time() if data_finalizacao else None,
 
-            # Data de Início
             'Data_Iniciou_OS': data_inicio,
             'Ano_Inicio': data_inicio.year if data_inicio else None,
             'Mes_Inicio': data_inicio.month if data_inicio else None,
             'Dia_Inicio': data_inicio.day if data_inicio else None,
             'Hora_Inicio': data_inicio.time() if data_inicio else None,
 
-
             'Data_Enviado_Verificacao': data_verificacao,
             'Data_Programada': data_programada,
         }
         os_obj, _ = OrdemDeServico.objects.update_or_create(OS=wo_folio, defaults=dados_os)
 
+        # Dados da Tarefa
+        resp_raw = item.get("personnel_description")
+        tipo_raw = item.get("tasks_log_task_type_main")
+
         dados_tarefa = {
             'ordem_de_servico': os_obj,
-            'Ativo': item.get("items_log_description"),
-            'Responsavel': item.get("personnel_description"),
+            'Ativo': ativo_raw,
+            'Responsavel': resp_raw,
             'Plano_de_Tarefas': item.get("description"),
-            'Tipo_de_Tarefa': item.get("tasks_log_task_type_main"),
+            'Tipo_de_Tarefa': tipo_raw,
             'Duracao_Minutos': self._segundos_para_minutos(item.get("real_duration")),
             'Status_da_Tarefa': item.get("task_status"),
+            
+            # Campos Normalizados
+            'Responsavel_Agrupado': get_grupo_tecnico(resp_raw),
+            'Tipo_Tarefa_Agrupado': get_grupo_tipo_tarefa(tipo_raw),
         }
         Tarefa.objects.update_or_create(id_tarefa_api=id_tarefa_api, defaults=dados_tarefa)
 

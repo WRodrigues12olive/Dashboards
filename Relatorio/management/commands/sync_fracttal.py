@@ -6,7 +6,14 @@ import pytz
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from Relatorio.models import OrdemDeServico, Tarefa
-
+# Importação das regras de negócio para aplicar na entrada dos dados
+from Relatorio.mappings import (
+    get_grupo_local, 
+    get_local_detalhado, 
+    get_grupo_tecnico, 
+    get_grupo_tipo_tarefa,
+    get_trt_specific_name
+)
 
 class Command(BaseCommand):
     help = 'Busca dados da API Fracttal e salva nos modelos relacionados de OS e Tarefas.'
@@ -100,12 +107,36 @@ class Command(BaseCommand):
             if not wo_folio or not id_tarefa_api:
                 continue
 
+            # Processamento de Datas
             data_criacao = self._parse_e_converter_datetime(item.get("creation_date"))
             data_finalizacao = self._parse_e_converter_datetime(item.get("wo_final_date"))
             data_inicio = self._parse_e_converter_datetime(item.get("initial_date"))
-            data_verificacao = self._parse_e_converter_datetime(item.get("review_date"))  # NOVO
-            data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))  # NOVO
+            data_verificacao = self._parse_e_converter_datetime(item.get("review_date"))
+            data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))
             id_request = item.get("id_request")
+
+            # --- APLICAÇÃO DA LÓGICA DE ORGANIZAÇÃO (NORMALIZAÇÃO) ---
+            local_raw = item.get("parent_description")
+            ativo_raw = item.get("items_log_description") # Importante para HC e TRT
+
+            # 1. Classificação inicial baseada no local
+            grupo_local = get_grupo_local(local_raw)
+            local_detalhado = get_local_detalhado(local_raw)
+
+            # 2. Refinamento com "Rede de Segurança" (Ativo)
+            # Se for HC no Ativo, força HC na OS
+            if ativo_raw and 'HOSPITAL DE CLINICAS' in ativo_raw.upper():
+                grupo_local = 'Hospital De Clinicas'
+                local_detalhado = 'Hospital De Clinicas'
+            
+            # Se for TRT genérico na OS, tenta achar detalhe no Ativo
+            elif ativo_raw and ('TRT' in ativo_raw.upper() or '4 REGIAO' in ativo_raw.upper()):
+                if grupo_local != 'TRT' or local_detalhado == 'TRT Outros':
+                    novo_local = get_trt_specific_name(ativo_raw)
+                    if novo_local != 'TRT Outros':
+                        grupo_local = 'TRT'
+                        local_detalhado = novo_local
+            # ---------------------------------------------------------
 
             dados_os = {
                 'Status': self._converter_status(item.get("id_status_work_order")),
@@ -114,8 +145,13 @@ class Command(BaseCommand):
                 'Avanco_da_OS': item.get("completed_percentage"),
                 'Ticket_ID': id_request,
                 'Possui_Ticket': "Sim" if id_request is not None else "Não",
-                'Local_Empresa': item.get("parent_description"),
+                
+                'Local_Empresa': local_raw,
                 'Observacao_OS': item.get("task_note"),
+
+                # Campos Normalizados Inseridos Explicitamente
+                'Local_Agrupado': grupo_local,
+                'Local_Detalhado': local_detalhado,
 
                 # Data de Criação
                 'Data_Criacao_OS': data_criacao,
@@ -150,15 +186,23 @@ class Command(BaseCommand):
             elif wo_folio not in os_atualizadas_nesta_pagina:
                 contadores['os_atualizadas'] += 1
                 os_atualizadas_nesta_pagina.add(wo_folio)
+            
+            # --- NORMALIZAÇÃO DA TAREFA ---
+            resp_raw = item.get("personnel_description")
+            tipo_raw = item.get("tasks_log_task_type_main")
 
             dados_tarefa = {
                 'ordem_de_servico': os_obj,
-                'Ativo': item.get("items_log_description"),
-                'Responsavel': item.get("personnel_description"),
+                'Ativo': ativo_raw,
+                'Responsavel': resp_raw,
                 'Plano_de_Tarefas': item.get("description"),
-                'Tipo_de_Tarefa': item.get("tasks_log_task_type_main"),
+                'Tipo_de_Tarefa': tipo_raw,
                 'Duracao_Minutos': self._segundos_para_minutos(item.get("real_duration")),
                 'Status_da_Tarefa': item.get("task_status"),
+                
+                # Campos Normalizados
+                'Responsavel_Agrupado': get_grupo_tecnico(resp_raw),
+                'Tipo_Tarefa_Agrupado': get_grupo_tipo_tarefa(tipo_raw),
             }
 
             _, tarefa_created = Tarefa.objects.update_or_create(id_tarefa_api=id_tarefa_api, defaults=dados_tarefa)

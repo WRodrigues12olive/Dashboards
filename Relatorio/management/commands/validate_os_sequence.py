@@ -9,7 +9,14 @@ from tqdm import tqdm
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from Relatorio.models import OrdemDeServico, Tarefa
-
+# Importação das regras
+from Relatorio.mappings import (
+    get_grupo_local, 
+    get_local_detalhado, 
+    get_grupo_tecnico, 
+    get_grupo_tipo_tarefa,
+    get_trt_specific_name
+)
 
 class Command(BaseCommand):
     help = 'Verifica a sequência de OS no banco de dados, encontra lacunas e busca os dados faltantes na API.'
@@ -148,12 +155,36 @@ class Command(BaseCommand):
         data_programada = self._parse_e_converter_datetime(item.get("date_maintenance"))
         id_request = item.get("id_request")
 
+        # --- LÓGICA DE ORGANIZAÇÃO ---
+        local_raw = item.get("parent_description")
+        ativo_raw = item.get("items_log_description")
+
+        grupo_local = get_grupo_local(local_raw)
+        local_detalhado = get_local_detalhado(local_raw)
+
+        # Regra do HC
+        if ativo_raw and 'HOSPITAL DE CLINICAS' in ativo_raw.upper():
+            grupo_local = 'Hospital De Clinicas'
+            local_detalhado = 'Hospital De Clinicas'
+        
+        # Regra do TRT (Safety Net)
+        elif ativo_raw and ('TRT' in ativo_raw.upper() or '4 REGIAO' in ativo_raw.upper()):
+            if grupo_local != 'TRT' or local_detalhado == 'TRT Outros':
+                novo_local = get_trt_specific_name(ativo_raw)
+                if novo_local != 'TRT Outros':
+                    grupo_local = 'TRT'
+                    local_detalhado = novo_local
+
         dados_os = {
             'Status': self._converter_status(item.get("id_status_work_order")),
             'Nivel_de_Criticidade': self._converter_criticidade(item.get("id_priorities")),
             'Criado_Por': item.get("created_by"), 'Avanco_da_OS': item.get("completed_percentage"),
             'Ticket_ID': id_request, 'Possui_Ticket': "Sim" if id_request is not None else "Não",
-            'Local_Empresa': item.get("parent_description"), 'Observacao_OS': item.get("task_note"),
+            'Local_Empresa': local_raw, 'Observacao_OS': item.get("task_note"),
+
+            # Campos Normalizados
+            'Local_Agrupado': grupo_local,
+            'Local_Detalhado': local_detalhado,
 
             'Data_Criacao_OS': data_criacao, 'Ano_Criacao': data_criacao.year if data_criacao else None,
             'Mes_Criacao': data_criacao.month if data_criacao else None,
@@ -176,12 +207,20 @@ class Command(BaseCommand):
         }
         os_obj, _ = OrdemDeServico.objects.update_or_create(OS=wo_folio, defaults=dados_os)
 
+        # Dados da Tarefa
+        resp_raw = item.get("personnel_description")
+        tipo_raw = item.get("tasks_log_task_type_main")
+
         dados_tarefa = {
-            'ordem_de_servico': os_obj, 'Ativo': item.get("items_log_description"),
-            'Responsavel': item.get("personnel_description"), 'Plano_de_Tarefas': item.get("description"),
-            'Tipo_de_Tarefa': item.get("tasks_log_task_type_main"),
+            'ordem_de_servico': os_obj, 'Ativo': ativo_raw,
+            'Responsavel': resp_raw, 'Plano_de_Tarefas': item.get("description"),
+            'Tipo_de_Tarefa': tipo_raw,
             'Duracao_Minutos': self._segundos_para_minutos(item.get("real_duration")),
             'Status_da_Tarefa': item.get("task_status"),
+
+            # Campos Normalizados
+            'Responsavel_Agrupado': get_grupo_tecnico(resp_raw),
+            'Tipo_Tarefa_Agrupado': get_grupo_tipo_tarefa(tipo_raw),
         }
         Tarefa.objects.update_or_create(id_tarefa_api=id_tarefa_api, defaults=dados_tarefa)
 
