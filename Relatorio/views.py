@@ -342,8 +342,6 @@ def Overview_view(request):
         'Cpfl': sla_data_cpfl
     }
 
-    # Se estamos em modo expandido, já construímos data_resumo lá em cima (detalhado).
-    # Só construir o resumo agregado quando não estivermos expandindo um cliente.
     if not expanded_cliente:
         data_resumo = []
         for cliente, dados in dados_agrupados_por_cliente.items():
@@ -526,7 +524,6 @@ def dashboard_view(request):
         except (ValueError, TypeError):
             pass
 
-    # 2. Lógica customizada do Hospital de Clínicas (HC)
     ids_hc_ativo = set(Tarefa.objects.filter(
         ordem_de_servico__in=base_qs,
         Ativo__icontains='HOSPITAL DE CLINICAS'
@@ -537,7 +534,6 @@ def dashboard_view(request):
     ).values_list('id', flat=True))
 
     all_hc_ids = ids_hc_ativo.union(ids_hc_local)  
-    # 3. Criar o QuerySet filtrado (para os cards e gráficos que MUDAM)
     ordens_no_periodo = base_qs 
 
     if start_date_str and end_date_str:
@@ -570,7 +566,6 @@ def dashboard_view(request):
             ]
             ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
 
-    # 4. Cálculos para os Cards e Gráficos
 
     os_abertas_no_periodo = ordens_no_periodo.count()
     os_concluidas = ordens_no_periodo.filter(Status='Concluído').count()
@@ -584,13 +579,11 @@ def dashboard_view(request):
     os_por_ticket = ordens_no_periodo.exclude(Possui_Ticket__isnull=True).values('Possui_Ticket').annotate(
         total=Count('id')).order_by('Possui_Ticket')
 
-    # Gráfico de Mês (Histórico GERAL, não deve ser filtrado por local)
     os_por_mes_qs = (OrdemDeServico.objects.annotate(mes=TruncMonth('Data_Criacao_OS')).values('mes').annotate(
         total=Count('id')).order_by('mes'))
     mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes_qs if d['mes']]
     mes_data = [d['total'] for d in os_por_mes_qs if d['mes']]
 
-    # Status de Execução (usa 'ordens_no_periodo' filtrado)
     os_ativas = ordens_no_periodo.exclude(Status__in=['Concluído', 'Cancelado'])
     ids_com_tarefa_in_progress = set(
         Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list(
@@ -1010,12 +1003,10 @@ def resultado_view(request):
     start_date = request.GET.get('start_date')
     end_date = request.GET.get('end_date')
 
-    # traz tarefas para evitar N+1 e manter mesma lógica do Excel
     dados_qs = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date).prefetch_related('tarefas')
 
     linhas = []
     for os in dados_qs:
-        # Cliente / mapping HC / Gerdau Outros (mesma lógica do gerar_excel_view)
         cliente_grupo = get_grupo_local(os.Local_Empresa)
         is_hc = False
         try:
@@ -1053,10 +1044,8 @@ def resultado_view(request):
 
         sla_atendido = ""
         sla_violado = ""
-        # aplica regra de SLA para Gerdau/park/cpfl (considera 'gerdau' no local)
         local_upper = (os.Local_Empresa or '').upper()
         if not is_preventiva and os.Data_Enviado_Verificacao and tempo_em_execucao_td:
-            # Gerdau (qualquer subsite ou Gerdau Outros)
             if 'GERDAU' in local_upper:
                 ativo_code = None
                 try:
@@ -1152,9 +1141,11 @@ def gerar_excel_view(request):
 
     for os in dados_filtrados:
         
+        # Mapeamento de Cliente (incluindo lógica HC) ---
         cliente_grupo = get_grupo_local(os.Local_Empresa)
         is_hc = False
         
+        # Verifica se o local já é HC
         if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
             is_hc = True
         else:
@@ -1174,7 +1165,7 @@ def gerar_excel_view(request):
         is_preventiva = False 
 
         try:
-            for tarefa in os.tarefas.all():
+            for tarefa in os.tarefas.all(): 
                 if tarefa.Responsavel:
                     tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
                 if tarefa.Tipo_de_Tarefa:

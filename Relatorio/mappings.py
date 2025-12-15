@@ -1,3 +1,35 @@
+from django.db import models
+import unicodedata
+import re
+import difflib
+
+TRT_SETORES_POA = {
+    "Almoxarifado": "Almoxarifado POA",
+    "Arquivo e Memorial": "Arquivo e Memorial POA",
+    "Cadastramento de bens": "Cadastramento de bens POA",
+    "Marcenaria": "Marcenaria POA",
+    "Matriz Setese": "Matriz Setese POA",
+    "Sede": "Sede POA",
+    "Transportes": "Transportes POA",
+    "Triagem": "Triagem e Depósito POA",
+    "Foro Trabalhista Porto Alegre": "Foro Trabalhista POA"
+}
+
+
+TRT_CIDADES = [
+    "Bagé", "Bento Gonçalves", "Cachoeirinha", "Canoas", "Caxias do Sul", "Erechim", "Estrela", 
+    "Gramado", "Gravataí", "Novo Hamburgo", "Passo Fundo", "Pelotas", "Rio Grande", 
+    "Santa Cruz do Sul", "Santa Maria", "Santa Rosa", "Sapiranga", "Sapucaia do Sul", 
+    "São Leopoldo", "Taquara", "Uruguaiana", "Capão da Canoa", "Dom Pedrito", "Itaqui", 
+    "Marau", "Nova Prata", "Panambi", "São Lourenço do Sul", "São Sebastião do Cai", 
+    "Taquari", "Tramandaí", "Frederico Westphalen", "Alegrete", "Alvorada", "Arroio Grande", 
+    "Cachoeira do Sul", "Camaquã", "Carazinho", "Cruz Alta", "Encantado", "Esteio", 
+    "Estância Velha", "Farroupilha", "Guaíba", "Ijuí", "Lagoa Vermelha", "Lajeado", 
+    "Montenegro", "Osório", "Palmeira das Missões", "Rosário do Sul", "Santa Vitória do Palmar", 
+    "Santana do Livramento", "Santiago", "Santo Ângelo", "Soledade", "São Borja", 
+    "São Gabriel", "São Jerônimo", "Torres", "Triunfo", "Três Passos", "Vacaria", "Viamão"
+]
+
 KEYWORDS_LOCAIS = [
     "ADAMA", "ADM BRASIL", "ALPHAVILLE", "ARCELORMITTAL", "ASSEMBLEIA", "BALL", "BIC", "CPFL", "CSN",
     "ENGELOG", "FITESA", "FUNDAÇÃO BANRISUL", "HOSPITAL DE CLINICAS", "LOJA MAÇONICA", "M DIAS", "NEOENERGIA",
@@ -384,3 +416,97 @@ MAPEAMENTO_TECNICOS = {
     "Jonathan Freitas"
   ],
 }
+
+def normalize_text(s: str) -> str:
+    """Normaliza strings removendo acentos e caracteres especiais."""
+    if not s:
+        return ''
+    s = unicodedata.normalize('NFKD', str(s)) 
+    s = s.encode('ASCII', 'ignore').decode('utf-8')
+    s = s.lower()
+    s = re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r'[^0-9a-z\-\s/]', '', s)
+    return s
+
+TECNICO_PARA_GRUPO_MAP = {}
+for grupo_principal, nomes_brutos in MAPEAMENTO_TECNICOS.items():
+    for nome_bruto in nomes_brutos:
+        key = normalize_text(nome_bruto)
+        TECNICO_PARA_GRUPO_MAP[key] = grupo_principal
+
+KNOWN_TECNICO_KEYS = list(TECNICO_PARA_GRUPO_MAP.keys())
+
+TIPO_TAREFA_PARA_GRUPO = {}
+for grupo, tipos in MAPEAMENTO_PLANO_TAREFAS_DETALHADO.items():
+    for tipo in tipos:
+        tipo_normalizado = ' '.join(tipo.strip().split()).lower()
+        TIPO_TAREFA_PARA_GRUPO[tipo_normalizado] = grupo
+
+def get_grupo_tecnico(responsavel_str):
+    if not responsavel_str: return 'Não Mapeado'
+    norm = normalize_text(responsavel_str)
+    if norm in TECNICO_PARA_GRUPO_MAP: return TECNICO_PARA_GRUPO_MAP[norm]
+    for key in KNOWN_TECNICO_KEYS:
+        if key and key in norm: return TECNICO_PARA_GRUPO_MAP[key]
+    close = difflib.get_close_matches(norm, KNOWN_TECNICO_KEYS, n=1, cutoff=0.85)
+    return TECNICO_PARA_GRUPO_MAP[close[0]] if close else 'Outros'
+
+def get_grupo_tipo_tarefa(tipo_str):
+    if not tipo_str: return 'Não Categorizado'
+    return TIPO_TAREFA_PARA_GRUPO.get(' '.join(tipo_str.strip().split()).lower(), 'Outros')
+
+def get_grupo_local(local_str):
+    """Retorna o GRUPO macro (Ex: Tudo que é Gerdau vira 'Gerdau')"""
+    if not local_str: return 'Outros'
+    local_upper = local_str.upper()
+
+    if 'TRT' in local_upper or '4 REGIAO' in local_upper or 'TRT4' in local_upper:
+        return 'TRT'
+    
+    if 'GERDAU' in local_upper:
+        return 'Gerdau'
+
+    melhor_match, menor_indice = None, float('inf')
+    for keyword in KEYWORDS_LOCAIS:
+        indice = local_upper.find(keyword.upper())
+        if indice != -1 and indice < menor_indice:
+            menor_indice, melhor_match = indice, keyword.title()
+            
+    return melhor_match if melhor_match else 'Outros'
+
+def get_trt_specific_name(text_str):
+    if not text_str: return 'TRT Outros'
+    
+    text_norm = normalize_text(text_str) 
+    
+    for chave, valor_formatado in TRT_SETORES_POA.items():
+        if normalize_text(chave) in text_norm:
+            return f"TRT {valor_formatado}"
+            
+    for cidade in TRT_CIDADES:
+        if normalize_text(cidade) in text_norm:
+            return f"TRT {cidade}" 
+            
+    return 'TRT Outros'
+
+def get_local_detalhado(local_str):
+    """Retorna o local ESPECÍFICO (Ex: 'Gerdau Cearense' ou 'Gerdau Outros')"""
+    if not local_str: return 'Outros'
+    local_upper = local_str.upper()
+
+    if 'TRT' in local_upper or '4 REGIAO' in local_upper or 'TRT4' in local_upper:
+        return get_trt_specific_name(local_str)
+
+    melhor_match, menor_indice = None, float('inf')
+    for keyword in KEYWORDS_LOCAIS:
+        indice = local_upper.find(keyword.upper())
+        if indice != -1 and indice < menor_indice:
+            menor_indice, melhor_match = indice, keyword.title()
+    
+    if melhor_match:
+        return melhor_match
+
+    if 'GERDAU' in local_upper:
+        return 'Gerdau Outros'
+
+    return 'Outros'
