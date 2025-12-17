@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-2)r_94e=!11ygdg*n5q2v80p67)flc%r3ww$6d+ppfn*)_c@1=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['138.118.165.37', '192.168.35.12']
+ALLOWED_HOSTS = ['138.118.165.37', '192.168.35.12', '127.0.0.1']
 
 
 # Application definition
@@ -89,6 +89,15 @@ DATABASES = {
         'NAME': 'Django',
         'USER': 'postgres',
         'PASSWORD': '@PG#2024',
+        'HOST': 'localhost',
+        'PORT': '5432',
+    },
+    # ADICIONE ESTE BLOCO DO NOVO BANCO:
+    'gitel_gerdau': {
+        'ENGINE': 'django.db.backends.postgresql', # Assumindo postgresql. Se for SQL Server, use 'mssql'
+        'NAME': 'gitel_gerdau',
+        'USER': 'postgres',      # Verifique se o usuário é o mesmo
+        'PASSWORD': '@PG#2024',  # Verifique a senha
         'HOST': 'localhost',
         'PORT': '5432',
     }
