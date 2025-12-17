@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoramento de Eventos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f6f9; }
+        .card { border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .filter-bar { background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Eventos</a>
+            <a href="{% url 'dashboard' %}" class="btn btn-outline-light btn-sm ms-auto">Voltar</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+        <div class="filter-bar">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label for="tabela" class="form-label fw-bold">Área Monitorada</label>
+                    <select name="tabela" id="tabela" class="form-select" onchange="this.form.submit()">
+                        {% for key, info in mapa_tabelas.items %}
+                        <option value="{{ key }}" {% if tabela_atual == key %}selected{% endif %}>{{ info.nome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="periodo" class="form-label fw-bold">Período</label>
+                    <select name="periodo" id="periodo" class="form-select" onchange="checkCustomDate()">
+                        <option value="1_semana" {% if selected_periodo == '1_semana' %}selected{% endif %}>Últimos 7 dias</option>
+                        <option value="este_mes" {% if selected_periodo == 'este_mes' %}selected{% endif %}>Este Mês</option>
+                        <option value="3_meses" {% if selected_periodo == '3_meses' %}selected{% endif %}>Últimos 3 Meses</option>
+                        <option value="6_meses" {% if selected_periodo == '6_meses' %}selected{% endif %}>Últimos 6 Meses</option>
+                        <option value="custom" {% if selected_periodo == 'custom' %}selected{% endif %}>Personalizado</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">De</label>
+                    <input type="date" class="form-control" name="start_date" id="start_date" value="{{ start_date }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">Até</label>
+                    <input type="date" class="form-control" name="end_date" id="end_date" value="{{ end_date }}">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-12">
+                <h4>Resultados para: <span class="text-primary">{{ nome_exibicao }}</span> <small class="text-muted fs-6">({{ start_date }} a {{ end_date }})</small></h4>
+            </div>
+        </div>
+
+        <div class="row mb-4 text-center">
+            <div class="col-md-4">
+                <div class="card bg-primary text-white p-3 h-100">
+                    <h3>{{ total_geral }}</h3>
+                    <small class="fw-bold">Total de Eventos</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-success text-white p-3 h-100">
+                    <h3>{{ total_green }}</h3>
+                    <small class="fw-bold">Verdadeiros</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card bg-danger text-white p-3 h-100">
+                    <h3>{{ total_red }}</h3>
+                    <small class="fw-bold">Falso-Positivos</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-6 mb-4">
+                <div class="card p-3 h-100">
+                    <h5 class="card-title text-secondary">Eventos por Câmera</h5>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="chartCameras"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6 mb-4">
+                <div class="card p-3 h-100">
+                    <h5 class="card-title text-secondary">Evolução Diária</h5>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="chartDiario"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 mb-4">
+                <div class="card p-3">
+                    <h5 class="card-title text-secondary">Detalhamento de Evento por Câmera</h5>
+                    <div style="position: relative; height: 600px;">
+                        <canvas id="chartTiposCamera"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    {{ cameras_labels|json_script:"d-cameras" }}
+    {{ data_camera_green|json_script:"d-cam-green" }}
+    {{ data_camera_red|json_script:"d-cam-red" }}
+    {{ datas_labels|json_script:"d-datas" }}
+    {{ data_dia_green|json_script:"d-dia-green" }}
+    {{ data_dia_red|json_script:"d-dia-red" }}
+    
+    {{ risco_labels|json_script:"d-risco-labels" }}
+    {{ data_ar|json_script:"d-ar" }}
+    {{ data_hc|json_script:"d-hc" }}
+    {{ data_ff|json_script:"d-ff" }}
+    {{ data_hm|json_script:"d-hm" }}
+    {{ data_np|json_script:"d-np" }}
+    {{ data_epi|json_script:"d-epi" }}
+    
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+
+    <script>
+        Chart.register(ChartDataLabels);
+
+        function compressGlobal(arrays, fator = 0.6) {
+            const flat = arrays.flat();
+            const max = Math.max(...flat);
+
+            return arrays.map(arr =>
+                arr.map(v =>
+                    v > 0
+                        ? Math.pow(v, fator) * (max / Math.pow(max, fator))
+                        : 0
+                )
+            );
+        }
+
+        function getDados(id) {
+            return JSON.parse(document.getElementById(id).textContent);
+        }
+
+        const dateInputs = document.querySelectorAll('input[type="date"]');
+        const periodSelect = document.getElementById('periodo');
+        dateInputs.forEach(input => {
+            input.addEventListener('change', () => { periodSelect.value = 'custom'; });
+        });
+        function checkCustomDate() {
+            if (periodSelect.value !== 'custom') { document.forms[0].submit(); }
+        }
+
+        // 1. Gráfico eventos por Câmeras
+        const camGreen = getDados('d-cam-green');
+        const camRed   = getDados('d-cam-red');
+
+        const [greenCompressed, redCompressed] =
+            compressGlobal([camGreen, camRed]);
+
+        new Chart(document.getElementById('chartCameras'), {
+            type: 'bar',
+            data: {
+                labels: getDados('d-cameras'),
+                datasets: [
+                    { label: 'Verdadeiro', data: greenCompressed, backgroundColor: '#198754' },
+                    { label: 'Falso-Positivo', data: redCompressed, backgroundColor: '#dc3545' }
+                ]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: { x: { stacked: true }, y: { stacked: true } },
+                plugins: {
+                    datalabels: {
+                        anchor: 'end', 
+                        align: 'end',  
+                        offset: -2,    
+                        
+                        color: function(context) {
+                            return context.dataset.backgroundColor; 
+                        },
+                        font: { weight: 'bold', size: 11 },
+                        formatter: function(value, context) {
+                            const valorOriginal = context.datasetIndex === 0 
+                                ? camGreen[context.dataIndex] 
+                                : camRed[context.dataIndex];
+                            
+                            return valorOriginal > 0 ? valorOriginal : '';
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const original = ctx.datasetIndex === 0
+                                    ? camGreen[ctx.dataIndex]
+                                    : camRed[ctx.dataIndex];
+
+                                return `${ctx.dataset.label}: ${original}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // 2. Gráfico Diário
+        new Chart(document.getElementById('chartDiario'), {
+            type: 'line',
+            data: {
+                labels: getDados('d-datas'),
+                datasets: [
+                    { label: 'Verdadeiro', data: getDados('d-dia-green'), borderColor: '#198754', backgroundColor: '#198754', tension: 0.1 },
+                    { label: 'Falso-Positivo', data: getDados('d-dia-red'), borderColor: '#dc3545', backgroundColor: '#dc3545', tension: 0.1 }
+                ]
+            },
+            options: { 
+                maintainAspectRatio: false,
+                plugins: {
+                    datalabels: { display: false } 
+                }
+            }
+        });
+
+        // 3. Gráfico Horizontal Empilhado
+        const labels = getDados('d-risco-labels');
+        const ar  = getDados('d-ar');
+        const epi = getDados('d-epi');
+        const ff  = getDados('d-ff');
+        const hc  = getDados('d-hc');
+        const hm  = getDados('d-hm');
+        const np  = getDados('d-np');
+
+        const totalDados = ar.length + epi.length + ff.length + hc.length + hm.length + np.length;
+
+        if (labels.length === 0 || totalDados === 0) {
+            console.warn('Gráfico de riscos: sem dados para exibir');
+        } else {
+            const [arC, epiC, ffC, hcC, hmC, npC] = compressGlobal([ar, epi, ff, hc, hm, np]);
+
+            new Chart(document.getElementById('chartTiposCamera'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Área Restrita (AR)', data: arC, backgroundColor: '#ff6f00' },
+                        { label: 'EPI', data: epiC, backgroundColor: '#20c997' },
+                        { label: 'Fogo / Fumaça (FF)', data: ffC, backgroundColor: '#637a78' },
+                        { label: 'Homem Chão (HC)', data: hcC, backgroundColor: '#963c03' },
+                        { label: 'Homem Máquina (HM)', data: hmC, backgroundColor: '#0d6efd' },
+                        { label: 'Nível Panela (NP)', data: npC, backgroundColor: '#d31616ff' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { 
+                            stacked: true, 
+                            title: { display: true, text: 'Escala Visual (Valores Reais nas Barras)' }
+                        }, 
+                        y: { stacked: true }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        
+                        datalabels: {
+                            color: 'white',
+                            font: { weight: 'bold', size: 11 },
+                            formatter: function(value, context) {
+                                const originais = [ar, epi, ff, hc, hm, np];
+                                const valorReal = originais[context.datasetIndex][context.dataIndex];
+                                return valorReal > 0 ? valorReal : '';
+                            },
+                            display: function(context) {
+                                return context.dataset.data[context.dataIndex] > 0;
+                            }
+                        },
+                        tooltip: {
+                            mode: 'nearest',   
+                            intersect: true,   
+                            callbacks: {
+                                label: function(context) {
+                                    const originais = [ar, epi, ff, hc, hm, np];
+                                    const valorReal = originais[context.datasetIndex][context.dataIndex];
+                                    return `${context.dataset.label}: ${valorReal}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

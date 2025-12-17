@@ -15,4 +15,5 @@ urlpatterns = [
     path('login/', views.CustomLoginView.as_view(), name='login'),
     path('logout/', views.CustomLogoutView.as_view(), name='logout'),
     path('trocar-senha-obrigatoria/', views.ForcePasswordChangeView.as_view(), name='password_change_forced'),
+    path('eventos-cameras/', views.dashboard_eventos_gitel, name='dashboard_eventos'),
 ]

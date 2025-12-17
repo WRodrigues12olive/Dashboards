@@ -19,6 +19,154 @@ from collections import defaultdict
 import unicodedata
 import re
 import difflib
+from django.shortcuts import render
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
+import json
+
+from .models_gitel import (
+    Feacsg, Feadiv, Feagsp, L1Pinda, Lam2Csg, 
+    Lw01Pinda, Puccsg, Shrcsg, Shrgsp
+)
+
+def dashboard_eventos_gitel(request):
+    mapa_tabelas = {
+        'feacsg': {'model': Feacsg, 'nome': 'CSG ACI'},
+        'shrcsg': {'model': Shrcsg, 'nome': 'CSG SHR'},
+        'puccsg': {'model': Puccsg, 'nome': 'CSG PSUC'},
+        'lam2csg': {'model': Lam2Csg, 'nome': 'CSG LAM2'},
+        'feadiv': {'model': Feadiv, 'nome': 'DIV'},
+        'feagsp': {'model': Feagsp, 'nome': 'GSP ACI'},
+        'shrgsp': {'model': Shrgsp, 'nome': 'GSP SHR'},
+        'l1pinda': {'model': L1Pinda, 'nome': 'PINDA LAM'},
+    }
+
+    tabela_selecionada = request.GET.get('tabela', 'feacsg')
+    if tabela_selecionada not in mapa_tabelas:
+        tabela_selecionada = 'feacsg'
+
+    ModelClass = mapa_tabelas[tabela_selecionada]['model']
+    nome_exibicao = mapa_tabelas[tabela_selecionada]['nome']
+
+    # Filtros de Data 
+    today = datetime.now().date()
+    selected_periodo = request.GET.get('periodo', 'este_mes')
+    start_date_str = request.GET.get('start_date', '')
+    end_date_str = request.GET.get('end_date', '')
+
+    if selected_periodo == 'este_mes':
+        start_date = today.replace(day=1)
+        end_date = today
+    elif selected_periodo == '1_semana':
+        start_date = today - timedelta(days=6)
+        end_date = today
+    elif selected_periodo == '3_meses':
+        start_date = today - relativedelta(months=3)
+        end_date = today
+    elif selected_periodo == '6_meses':
+        start_date = today - relativedelta(months=6)
+        end_date = today
+    elif selected_periodo == 'custom':
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            start_date = today - relativedelta(months=6)
+            end_date = today
+    else:
+        selected_periodo = '6_meses'
+        start_date = today - relativedelta(months=6)
+        end_date = today
+
+    end_date_query = end_date + timedelta(days=1)
+
+    #  Query Principal
+    qs = ModelClass.objects.using('gitel_gerdau').filter(
+        color__in=['Green', 'Red'],
+        startdate__gte=start_date,
+        startdate__lt=end_date_query
+    )
+
+    # Totais KPI
+    total_geral = qs.count()
+    total_green = qs.filter(color='Green').count()
+    total_red = qs.filter(color='Red').count()
+
+    # Por Câmera (KPI e Gráfico de Barras)
+    por_camera = qs.values('cameras').annotate(
+        ok=Count('pk', filter=Q(color='Green')),
+        nok=Count('pk', filter=Q(color='Red')),
+        total=Count('pk')
+    ).order_by('-total')
+
+    cameras_labels = [x['cameras'] for x in por_camera]
+    data_camera_green = [x['ok'] for x in por_camera]
+    data_camera_red = [x['nok'] for x in por_camera]
+
+    # Por Dia
+    por_dia = qs.annotate(data=TruncDate('startdate')).values('data').annotate(
+        ok=Count('pk', filter=Q(color='Green')),
+        nok=Count('pk', filter=Q(color='Red'))
+    ).order_by('data')
+
+    datas_labels = [x['data'].strftime('%d/%m') for x in por_dia if x['data']]
+    data_dia_green = [x['ok'] for x in por_dia]
+    data_dia_red = [x['nok'] for x in por_dia]
+
+    from collections import defaultdict
+    dados_risco = defaultdict(lambda: {'AR': 0, 'HC': 0, 'FF': 0, 'HM': 0, 'NP': 0, 'EPI': 0, 'Total': 0})
+    
+    siglas_validas = ['AR', 'HC', 'FF', 'HM', 'NP', 'EPI']
+
+    for item in qs:
+        if item.title and item.cameras:
+            nome_cam = item.cameras.strip()
+            partes = item.title.strip().split('_')
+            sufixo = partes[-1].upper()
+            
+            if sufixo in siglas_validas:
+                dados_risco[nome_cam][sufixo] += 1
+                dados_risco[nome_cam]['Total'] += 1
+
+    # Ordena câmeras
+    cameras_ordenadas_risco = sorted(dados_risco.keys(), key=lambda k: dados_risco[k]['Total'], reverse=True)
+
+    risco_labels = cameras_ordenadas_risco
+    data_ar = [dados_risco[cam]['AR'] for cam in cameras_ordenadas_risco]
+    data_hc = [dados_risco[cam]['HC'] for cam in cameras_ordenadas_risco]
+    data_ff = [dados_risco[cam]['FF'] for cam in cameras_ordenadas_risco]
+    data_hm = [dados_risco[cam]['HM'] for cam in cameras_ordenadas_risco]
+    data_np = [dados_risco[cam]['NP'] for cam in cameras_ordenadas_risco]
+    data_epi = [dados_risco[cam]['EPI'] for cam in cameras_ordenadas_risco] 
+
+    context = {
+        'mapa_tabelas': mapa_tabelas,
+        'tabela_atual': tabela_selecionada,
+        'nome_exibicao': nome_exibicao,
+        'start_date': start_date.strftime('%Y-%m-%d'),
+        'end_date': end_date.strftime('%Y-%m-%d'),
+        'selected_periodo': selected_periodo,
+        'total_geral': total_geral,
+        'total_green': total_green,
+        'total_red': total_red,
+        'cameras_labels': cameras_labels,
+        'data_camera_green': data_camera_green,
+        'data_camera_red': data_camera_red,
+        'datas_labels': datas_labels,
+        'data_dia_green': data_dia_green,
+        'data_dia_red': data_dia_red,
+        
+        # Dados Risco
+        'risco_labels': risco_labels,
+        'data_ar': data_ar,
+        'data_hc': data_hc,
+        'data_ff': data_ff,
+        'data_hm': data_hm,
+        'data_np': data_np,
+        'data_epi': data_epi, 
+    }
+
+    return render(request, 'Relatorio/dashboard_eventos.html', context)
 
 class CustomLoginView(LoginView):
     template_name = 'Relatorio/login.html'
