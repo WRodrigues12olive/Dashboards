@@ -9,6 +9,20 @@
         body { background-color: #f4f6f9; }
         .card { border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .filter-bar { background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        @media print {
+        .filter-bar, .navbar {
+            display: none !important;
+        }
+        
+        .card {
+            break-inside: avoid;      
+            page-break-inside: avoid;  
+        }
+        
+        .force-page-break {
+            page-break-before: always;
+        }
+    }
     </style>
 </head>
 <body>
@@ -113,21 +127,22 @@
 
     </div>
 
+    <!-- DADOS JÁ PRONTOS -->
     {{ cameras_labels|json_script:"d-cameras" }}
-    {{ data_camera_green|json_script:"d-cam-green" }}
-    {{ data_camera_red|json_script:"d-cam-red" }}
+    {{ data_camera_green|json_script:"d-cam-true" }}  
+    {{ data_camera_red|json_script:"d-cam-false" }}   
+
     {{ datas_labels|json_script:"d-datas" }}
-    {{ data_dia_green|json_script:"d-dia-green" }}
-    {{ data_dia_red|json_script:"d-dia-red" }}
-    
+    {{ data_dia_green|json_script:"d-dia-true" }}     
+    {{ data_dia_red|json_script:"d-dia-false" }}      
+
     {{ risco_labels|json_script:"d-risco-labels" }}
-    {{ data_ar|json_script:"d-ar" }}
-    {{ data_hc|json_script:"d-hc" }}
-    {{ data_ff|json_script:"d-ff" }}
-    {{ data_hm|json_script:"d-hm" }}
-    {{ data_np|json_script:"d-np" }}
-    {{ data_epi|json_script:"d-epi" }}
-    
+    {{ data_ar|json_script:"d-ar-true" }}
+    {{ data_hc|json_script:"d-hc-true" }}
+    {{ data_ff|json_script:"d-ff-true" }}
+    {{ data_hm|json_script:"d-hm-true" }}
+    {{ data_np|json_script:"d-np-true" }}
+    {{ data_epi|json_script:"d-epi-true" }}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -162,20 +177,20 @@
             if (periodSelect.value !== 'custom') { document.forms[0].submit(); }
         }
 
-        // 1. Gráfico eventos por Câmeras
-        const camGreen = getDados('d-cam-green');
-        const camRed   = getDados('d-cam-red');
+        // 1 Eventos por Câmera (stack)
+        const camTrue  = getDados('d-cam-true');   
+        const camFalse = getDados('d-cam-false');  
 
-        const [greenCompressed, redCompressed] =
-            compressGlobal([camGreen, camRed]);
+        const [trueCompressed, falseCompressed] =
+            compressGlobal([camTrue, camFalse]);
 
         new Chart(document.getElementById('chartCameras'), {
             type: 'bar',
             data: {
                 labels: getDados('d-cameras'),
                 datasets: [
-                    { label: 'Verdadeiro', data: greenCompressed, backgroundColor: '#198754' },
-                    { label: 'Falso-Positivo', data: redCompressed, backgroundColor: '#dc3545' }
+                    { label: 'Verdadeiro',     data: trueCompressed,  backgroundColor: '#198754' },
+                    { label: 'Falso-Positivo', data: falseCompressed, backgroundColor: '#dc3545' }
                 ]
             },
             options: {
@@ -183,29 +198,26 @@
                 scales: { x: { stacked: true }, y: { stacked: true } },
                 plugins: {
                     datalabels: {
-                        anchor: 'end', 
-                        align: 'end',  
-                        offset: -2,    
-                        
-                        color: function(context) {
-                            return context.dataset.backgroundColor; 
-                        },
+                        anchor: 'end',
+                        align: (context) => context.datasetIndex === 0 ? 'start' : 'end',
+                        offset: -2,
+                        color: (context) => context.dataset.backgroundColor,
+                        textStrokeColor: (context) => context.datasetIndex === 0 ? '#ffffff' : null,
+                        textStrokeWidth: (context) => context.datasetIndex === 0 ? 2 : 0,
                         font: { weight: 'bold', size: 11 },
-                        formatter: function(value, context) {
-                            const valorOriginal = context.datasetIndex === 0 
-                                ? camGreen[context.dataIndex] 
-                                : camRed[context.dataIndex];
-                            
-                            return valorOriginal > 0 ? valorOriginal : '';
+                        formatter: (value, context) => {
+                            const original = context.datasetIndex === 0
+                                ? camTrue[context.dataIndex]
+                                : camFalse[context.dataIndex];
+                            return original > 0 ? original : '';
                         }
                     },
                     tooltip: {
                         callbacks: {
                             label: (ctx) => {
                                 const original = ctx.datasetIndex === 0
-                                    ? camGreen[ctx.dataIndex]
-                                    : camRed[ctx.dataIndex];
-
+                                    ? camTrue[ctx.dataIndex]
+                                    : camFalse[ctx.dataIndex];
                                 return `${ctx.dataset.label}: ${original}`;
                             }
                         }
@@ -214,32 +226,35 @@
             }
         });
 
-        // 2. Gráfico Diário
+        // 2 Evolução diária (line)
+        const diaTrue  = getDados('d-dia-true');   
+        const diaFalse = getDados('d-dia-false');  
+
         new Chart(document.getElementById('chartDiario'), {
             type: 'line',
             data: {
                 labels: getDados('d-datas'),
                 datasets: [
-                    { label: 'Verdadeiro', data: getDados('d-dia-green'), borderColor: '#198754', backgroundColor: '#198754', tension: 0.1 },
-                    { label: 'Falso-Positivo', data: getDados('d-dia-red'), borderColor: '#dc3545', backgroundColor: '#dc3545', tension: 0.1 }
+                    { label: 'Verdadeiro',     data: diaTrue,  borderColor: '#198754', backgroundColor: '#198754', tension: 0.1 },
+                    { label: 'Falso-Positivo', data: diaFalse, borderColor: '#dc3545', backgroundColor: '#dc3545', tension: 0.1 }
                 ]
             },
-            options: { 
+            options: {
                 maintainAspectRatio: false,
-                plugins: {
-                    datalabels: { display: false } 
-                }
+                plugins: { datalabels: { display: false } }
             }
         });
 
-        // 3. Gráfico Horizontal Empilhado
+        // 3 Detalhamento por câmera (stack horizontal)
         const labels = getDados('d-risco-labels');
-        const ar  = getDados('d-ar');
-        const epi = getDados('d-epi');
-        const ff  = getDados('d-ff');
-        const hc  = getDados('d-hc');
-        const hm  = getDados('d-hm');
-        const np  = getDados('d-np');
+
+        // Aqui são valores já tratados no backend 
+        const ar  = getDados('d-ar-true');
+        const epi = getDados('d-epi-true');
+        const ff  = getDados('d-ff-true');
+        const hc  = getDados('d-hc-true');
+        const hm  = getDados('d-hm-true');
+        const np  = getDados('d-np-true');
 
         const totalDados = ar.length + epi.length + ff.length + hc.length + hm.length + np.length;
 
@@ -253,12 +268,12 @@
                 data: {
                     labels: labels,
                     datasets: [
-                        { label: 'Área Restrita (AR)', data: arC, backgroundColor: '#ff6f00' },
-                        { label: 'EPI', data: epiC, backgroundColor: '#20c997' },
-                        { label: 'Fogo / Fumaça (FF)', data: ffC, backgroundColor: '#637a78' },
-                        { label: 'Homem Chão (HC)', data: hcC, backgroundColor: '#963c03' },
-                        { label: 'Homem Máquina (HM)', data: hmC, backgroundColor: '#0d6efd' },
-                        { label: 'Nível Panela (NP)', data: npC, backgroundColor: '#d31616ff' }
+                        { label: 'Área Restrita (AR)',    data: arC,  backgroundColor: '#ff6f00' },
+                        { label: 'EPI',                   data: epiC, backgroundColor: '#20c997' },
+                        { label: 'Fogo / Fumaça (FF)',    data: ffC,  backgroundColor: '#637a78' },
+                        { label: 'Homem Chão (HC)',       data: hcC,  backgroundColor: '#963c03' },
+                        { label: 'Homem Máquina (HM)',    data: hmC,  backgroundColor: '#0d6efd' },
+                        { label: 'Nível Panela (NP)',     data: npC,  backgroundColor: '#d31616ff' }
                     ]
                 },
                 options: {
@@ -266,35 +281,32 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        x: { 
-                            stacked: true, 
+                        x: {
+                            stacked: true,
                             title: { display: true, text: 'Escala Visual (Valores Reais nas Barras)' }
-                        }, 
+                        },
                         y: { stacked: true }
                     },
                     plugins: {
                         legend: { position: 'top' },
-                        
                         datalabels: {
                             color: 'white',
                             font: { weight: 'bold', size: 11 },
-                            formatter: function(value, context) {
+                            formatter: (value, context) => {
                                 const originais = [ar, epi, ff, hc, hm, np];
-                                const valorReal = originais[context.datasetIndex][context.dataIndex];
-                                return valorReal > 0 ? valorReal : '';
+                                const real = originais[context.datasetIndex][context.dataIndex];
+                                return real > 0 ? real : '';
                             },
-                            display: function(context) {
-                                return context.dataset.data[context.dataIndex] > 0;
-                            }
+                            display: (context) => context.dataset.data[context.dataIndex] > 0
                         },
                         tooltip: {
-                            mode: 'nearest',   
-                            intersect: true,   
+                            mode: 'nearest',
+                            intersect: true,
                             callbacks: {
-                                label: function(context) {
+                                label: (context) => {
                                     const originais = [ar, epi, ff, hc, hm, np];
-                                    const valorReal = originais[context.datasetIndex][context.dataIndex];
-                                    return `${context.dataset.label}: ${valorReal}`;
+                                    const real = originais[context.datasetIndex][context.dataIndex];
+                                    return `${context.dataset.label}: ${real}`;
                                 }
                             }
                         }

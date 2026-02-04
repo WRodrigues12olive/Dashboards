@@ -1,0 +1,85 @@
+<div class="modal-header {% if tipo == 'sla_critico' %}bg-danger{% else %}bg-primary{% endif %} text-white">
+    <h5 class="modal-title">
+        {% if tipo == 'sla_critico' %}<i class="fas fa-exclamation-triangle me-2"></i>{% else %}<i class="fas fa-list-ul me-2"></i>{% endif %}
+        {{ titulo }}
+    </h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+
+<div class="modal-body p-0">
+    <div class="table-responsive">
+        <table class="table table-striped table-hover mb-0" style="font-size: 0.85rem;">
+            
+            <thead class="bg-light sticky-top">
+                {% if tipo == 'sla_critico' %}
+                <tr>
+                    <th>OS</th>
+                    <th>Motivo</th>
+                    <th style="width: 40%;">Descrição Completa</th>
+                    <th>Técnico</th>
+                    <th>Data Criação</th>
+                </tr>
+                {% else %}
+                <tr>
+                    <th>OS</th>
+                    <th>Status</th>
+                    <th>Técnico</th>
+                    <th>Data Criação</th>
+                    <th>Local</th>
+                </tr>
+                {% endif %}
+            </thead>
+
+            <tbody>
+                {% for os in page_obj %}
+                <tr>
+                    {% if tipo == 'sla_critico' %}
+                        <td class="fw-bold text-danger">OS {{ os.OS }}</td>
+                        <td><span class="badge bg-danger">Atrasado</span></td>
+                        <td>
+                            <div style="white-space: normal; line-height: 1.4;">
+                                {{ os.Observacao_OS|default:os.tarefas.first.Plano_de_Tarefas|default:"Sem descrição" }}
+                            </div>
+                        </td>
+                        <td>{{ os.tarefas.first.Responsavel_Agrupado|default:"-" }}</td>
+                        <td>{{ os.Data_Criacao_OS|date:"d/m/Y H:i" }}</td>
+
+                    {% else %}
+                        <td class="fw-bold text-primary">{{ os.OS }}</td>
+                        <td>
+                            <span class="badge {% if os.Status == 'Concluído' %}bg-success{% elif os.Status == 'Em Processo' %}bg-primary{% else %}bg-warning{% endif %}">
+                                {{ os.Status }}
+                            </span>
+                        </td>
+                        <td>{{ os.tarefas.first.Responsavel_Agrupado|default:"-" }}</td>
+                        <td>{{ os.Data_Criacao_OS|date:"d/m/Y H:i" }}</td>
+                        <td>{{ os.Local_Detalhado|truncatechars:30 }}</td>
+                    {% endif %}
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="text-center p-4">Nenhum registro encontrado.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal-footer justify-content-center">
+    <nav>
+        <ul class="pagination mb-0">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <button class="page-link" onclick="carregarModal('{{ tipo }}', {{ page_obj.previous_page_number }})">Anterior</button>
+            </li>
+            {% endif %}
+            
+            <li class="page-item disabled"><span class="page-link">Pág {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></li>
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <button class="page-link" onclick="carregarModal('{{ tipo }}', {{ page_obj.next_page_number }})">Próxima</button>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+</div>

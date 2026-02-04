@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+{% load static %}
+{% load format_helpers %} <html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRT4 | Dashboard Dinâmico</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/style.css">
+
+    <style>
+        :root {
+            --sidebar-bg: #0f172a;
+            --sidebar-text: #94a3b8;
+            --primary: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-body: #f8fafc;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: #334155;
+            font-size: 0.875rem;
+            overflow-x: hidden;
+        }
+
+        /* Ajuste visual do Input de Data */
+        .flatpickr-input {
+            background-color: white !important;
+            cursor: pointer !important;
+            border: 1px solid #e2e8f0;
+            font-weight: 600;
+            color: var(--primary);
+            text-align: center;
+        }
+        
+        .sidebar { background-color: var(--sidebar-bg); min-height: 100vh; color: var(--sidebar-text); transition: all 0.3s; }
+        .sidebar .brand { color: white; font-size: 1.25rem; font-weight: 700; padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .nav-category { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; padding: 1.5rem 1.5rem 0.5rem; font-weight: 600; color: #475569; }
+        .nav-link { color: var(--sidebar-text); padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 10px; font-weight: 500; transition: 0.2s; border-left: 3px solid transparent; text-decoration: none; }
+        .nav-link:hover, .nav-link.active { color: white; background-color: rgba(255,255,255,0.05); border-left-color: var(--primary); }
+        .card { border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); background: white; }
+        .kpi-title { font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
+        .kpi-number { font-size: 1.75rem; font-weight: 700; color: #0f172a; letter-spacing: -1px; }
+        .table thead th { background-color: #f1f5f9; font-size: 0.75rem; text-transform: uppercase; color: #475569; font-weight: 600; border-bottom: 2px solid var(--border-color); padding: 12px; }
+        .table td { vertical-align: middle; padding: 12px 10px; }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; margin-left: -10px; background: #cbd5e1; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: bold; color: #475569; }
+        .badge-status { padding: 5px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .cursor-pointer {
+            cursor: pointer; /* Mãozinha */
+            transition: transform 0.2s ease, box-shadow 0.2s ease; /* Suavidade */
+        }
+        .cursor-pointer:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .cursor-pointer:active {
+            transform: scale(0.95);
+        }
+        .hover-effect { transition: transform 0.2s, box-shadow 0.2s; }
+        .hover-effect:hover { transform: translateY(-3px); box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        /* CSS NOVO DO FEED (Limpo) */
+        .activity-feed { position: relative; padding-left: 20px; border-left: 2px solid #e2e8f0; margin-left: 10px; margin-top: 5px; }
+        .feed-item { position: relative; margin-bottom: 25px; }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid p-0">
+    <div class="d-flex">
+        
+        <div class="sidebar d-none d-lg-block" style="width: 260px; flex-shrink: 0;">
+            <div class="brand d-flex align-items-center gap-2">
+                <i class="fas fa-landmark"></i> TRT4
+            </div>
+            
+            <div class="nav-category">Principal</div>
+            <nav class="nav flex-column">
+                <a href="{% url 'dashboard_novo' %}" class="nav-link active"><i class="fas fa-chart-pie fa-fw"></i> Visão Geral</a>
+                </nav>
+            </div>
+
+        <div class="flex-grow-1" style="height: 100vh; overflow-y: auto;">
+            <div class="bg-white border-bottom py-2 px-4 sticky-top d-flex justify-content-between align-items-center" style="height: 64px;">
+                <h5 class="mb-0 fw-bold">Painel de Controle Operacional</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="text-end d-none d-md-block">
+                        <div class="fw-bold">{{ request.user.get_full_name|default:request.user.username }}</div>
+                    </div>
+                    <div class="avatar bg-primary text-white">{{ request.user.username|slice:":2"|upper }}</div>
+                </div>
+            </div>
+
+            <div class="p-4">
+                
+                <div class="row g-3 mb-4">
+                     <div class="col">
+                        <div class="card p-3 h-100 border-start border-4 border-dark cursor-pointer hover-effect" onclick="carregarModal('total', 1)">
+                            <span class="kpi-title">Total OS</span>
+                            <div class="kpi-number">{{ kpi_total }}</div>
+                        </div>
+                     </div>
+
+                     <div class="col">
+                        <div class="card p-3 h-100 border-start border-4 border-primary cursor-pointer hover-effect" onclick="carregarModal('abertas', 1)">
+                            <span class="kpi-title">Abertas</span>
+                            <div class="kpi-number">{{ kpi_abertas }}</div>
+                        </div>
+                     </div>
+
+                     <div class="col">
+                        <div class="card p-3 h-100 border-start border-warning cursor-pointer hover-effect" onclick="carregarModal('auditoria', 1)">
+                            <span class="kpi-title">Auditoria</span>
+                            <div class="kpi-number">{{ kpi_auditoria }}</div>
+                        </div>
+                     </div>
+
+                     <div class="col"><div class="card p-3 h-100 border-start border-success"><span class="kpi-title">Custo Total</span><div class="kpi-number" style="font-size: 1.4rem;">{{ kpi_orcamento }}</div></div></div>
+                     
+                     <div class="col">
+                        <div class="card p-3 h-100 border-start border-4 border-danger cursor-pointer hover-effect" onclick="carregarModal('sla_critico', 1)">
+                            <span class="kpi-title">SLA Crítico</span>
+                            <div class="kpi-number">{{ kpi_sla_critico }}</div>
+                        </div>
+                     </div>
+                </div>
+                </div>
+
+                <div class="row g-4 mb-4">
+                    <div class="col-lg-8">
+                        <div class="card h-100">
+                            <div class="card-header bg-white border-bottom-0 pt-4 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <h6 class="fw-bold mb-0">Produtividade Mensal</h6>
+                                
+                                <form method="get" class="d-flex align-items-center gap-2 position-relative">
+                                    <label class="text-muted small fw-bold mb-0">Mês de Referência:</label>
+                                    <div class="input-group input-group-sm" style="width: 180px;">
+                                        <span class="input-group-text bg-white border-end-0"><i class="far fa-calendar-alt text-primary"></i></span>
+                                        <input type="text" 
+                                               id="filtro_mes" 
+                                               name="mes" 
+                                               class="form-control border-start-0 ps-0 fw-bold text-primary"
+                                               value="{{ mes_selecionado }}" 
+                                               placeholder="Selecione..."
+                                               readonly>
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="card-body px-4">
+                                <canvas id="revenueChart" height="100"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-4">
+                        <div class="card h-100">
+                            <div class="card-header bg-white border-bottom-0 pt-4 px-4">
+                                <h6 class="fw-bold mb-0">Atividade Recente</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="activity-feed" style="margin-top: 10px;">
+                                    {% for evento in feed_atividades %}
+                                    <div class="feed-item pb-4">
+                                        <div class="position-absolute top-0 start-0 translate-middle bg-white d-flex align-items-center justify-content-center" 
+                                             style="width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--{{ evento.cor }}); left: -11px !important; margin-top: 5px;">
+                                        </div>
+                                        <div class="feed-date mb-1 text-muted" style="font-size: 0.85rem;">
+                                            {{ evento.data|date:"d/m H:i" }}
+                                        </div>
+                                        <p class="feed-text mb-0 text-dark" style="font-size: 1rem; line-height: 1.5;">
+                                            {{ evento.texto|safe }}
+                                        </p>
+                                    </div>
+                                    {% empty %}
+                                    <p class="text-muted small">Nenhuma atividade recente.</p>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                     <div class="card-header bg-white pt-3 px-4 d-flex justify-content-between align-items-center">
+                        <h6 class="fw-bold mb-0">Últimas Ordens de Serviço</h6>
+                        <span class="badge bg-light text-muted border">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+                     </div>
+                     <div class="table-responsive">
+                         <table class="table table-hover mb-0">
+                             <thead><tr><th class="ps-4">Protocolo</th><th>Local</th><th>Técnico</th><th>SLA</th><th>Status</th><th>Custo</th></tr></thead>
+                             <tbody>
+                                {% for os in page_obj %}
+                                <tr>
+                                    <td class="ps-4"><div class="fw-bold">{{ os.OS }}</div><small>{{ os.Data_Criacao_OS|date:"d M Y" }}</small></td>
+                                    <td><div class="fw-bold">{{ os.Local_Agrupado }}</div><small>{{ os.Local_Detalhado|truncatechars:30 }}</small></td>
+                                    <td>{{ os.tarefas.first.Responsavel_Agrupado|default:"-" }}</td>
+                                    <td>
+                                        {% if os.violou_sla %}
+                                        <span class="badge bg-danger-subtle text-danger">{{ os.detalhe_sla }}</span>
+                                        {% else %}
+                                        <span class="badge bg-success-subtle text-success">No Prazo</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><span class="badge-status bg-light text-dark"><div class="status-dot bg-secondary"></div>{{ os.Status }}</span></td>
+                                    <td class="fw-bold">R$ {{ os.custo_total|default:"0"|floatformat:2 }}</td>
+                                </tr>
+                                {% endfor %}
+                             </tbody>
+                         </table>
+                     </div>
+                     <div class="card-footer bg-white border-top-0 py-3">
+                        <nav aria-label="Navegação de página">
+                            <ul class="pagination justify-content-center mb-0">
+                                
+                                {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link border-0 text-dark shadow-none" href="?page={{ page_obj.previous_page_number }}&mes={{ mes_selecionado }}">
+                                        <i class="fas fa-chevron-left me-1"></i> Anterior
+                                    </a>
+                                </li>
+                                {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link border-0 text-muted shadow-none"><i class="fas fa-chevron-left me-1"></i> Anterior</span>
+                                </li>
+                                {% endif %}
+
+                                {% for num in page_obj.paginator.page_range %}
+                                    {% if page_obj.number == num %}
+                                        <li class="page-item active">
+                                            <span class="page-link border-0 bg-primary shadow-none">{{ num }}</span>
+                                        </li>
+                                    {% elif num > page_obj.number|add:'-4' and num < page_obj.number|add:'4' %}
+                                        <li class="page-item">
+                                            <a class="page-link border-0 text-dark shadow-none" href="?page={{ num }}&mes={{ mes_selecionado }}">
+                                                {{ num }}
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+
+                                {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link border-0 text-dark shadow-none" href="?page={{ page_obj.next_page_number }}&mes={{ mes_selecionado }}">
+                                        Próximo <i class="fas fa-chevron-right ms-1"></i>
+                                    </a>
+                                </li>
+                                {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link border-0 text-muted shadow-none">Próximo <i class="fas fa-chevron-right ms-1"></i></span>
+                                </li>
+                                {% endif %}
+                                
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+                <div class="modal fade" id="modalKpiDetalhes" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                        <div class="modal-content" id="modal-content-area">
+                            <div class="modal-body text-center p-5">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="mt-2">Carregando dados...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/plugins/monthSelect/index.js"></script>
+<script src="https://npmcdn.com/flatpickr/dist/l10n/pt.js"></script>
+
+<script>
+    // --- Configuração do Calendário de Mês ---
+    flatpickr("#filtro_mes", {
+        plugins: [
+            new monthSelectPlugin({
+              shorthand: true, // Mostra Jan, Fev, Mar...
+              dateFormat: "Y-m", // Formato que o Django recebe (2024-01)
+              altFormat: "F Y",  // Formato bonito pro usuário (Janeiro 2024)
+              theme: "light"
+            })
+        ],
+        locale: "pt", // Português
+        defaultDate: "{{ mes_selecionado }}", // Pega o mês atual da view
+        onChange: function(selectedDates, dateStr, instance) {
+            // Envia o formulário automaticamente assim que escolhe o mês
+            instance.element.closest('form').submit();
+        }
+    });
+
+    // --- Gráfico (Mantido e ajustado labels) ---
+    const ctx = document.getElementById('revenueChart').getContext('2d');
+    
+    let gradBlue = ctx.createLinearGradient(0, 0, 0, 400);
+    gradBlue.addColorStop(0, 'rgba(37, 99, 235, 0.2)');
+    gradBlue.addColorStop(1, 'rgba(37, 99, 235, 0)');
+
+    let gradGreen = ctx.createLinearGradient(0, 0, 0, 400);
+    gradGreen.addColorStop(0, 'rgba(16, 185, 129, 0.2)');
+    gradGreen.addColorStop(1, 'rgba(16, 185, 129, 0)');
+
+    const labels = JSON.parse('{{ chart_labels|escapejs }}');
+    const dataCriadas = JSON.parse('{{ chart_data_criadas|escapejs }}');
+    const dataVerificacao = JSON.parse('{{ chart_data_verificacao|escapejs }}');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Abertas',
+                    data: dataCriadas,
+                    borderColor: '#2563eb', 
+                    backgroundColor: gradBlue,
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Concluídas',
+                    data: dataVerificacao,
+                    borderColor: '#10b981', 
+                    backgroundColor: gradGreen,
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: { position: 'top', align: 'end' },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': ' + context.parsed.y + ' OS';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { borderDash: [2, 4], color: '#e2e8f0' },
+                    ticks: { stepSize: 1 } 
+                },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+    function carregarModal(tipo, pagina) {
+        // Abre o modal
+        const modalEl = document.getElementById('modalKpiDetalhes');
+        const modal = new bootstrap.Modal(modalEl);
+        
+        // Se for a primeira abertura (não paginação), mostra o modal
+        if (!modalEl.classList.contains('show')) {
+            modal.show();
+        }
+
+        // Mostra loading se for troca de página
+        const contentArea = document.getElementById('modal-content-area');
+        contentArea.style.opacity = '0.5';
+
+        // independente se está em /Relatorio/ ou na raiz.
+        const urlBase = "{% url 'dashboard_modal_data' %}";
+        
+        fetch(`${urlBase}?tipo=${tipo}&page=${pagina}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Erro na rede ou URL não encontrada');
+                }
+                return response.text();
+            })
+            .then(html => {
+                contentArea.innerHTML = html;
+                contentArea.style.opacity = '1';
+            })
+            .catch(err => {
+                console.error(err);
+                contentArea.innerHTML = '<div class="modal-body text-danger text-center"><i class="fas fa-exclamation-circle fa-2x mb-3"></i><br>Erro ao carregar dados.<br>Verifique o console (F12).</div>';
+            });
+    }
+</script>
+
+</body>
+</html>

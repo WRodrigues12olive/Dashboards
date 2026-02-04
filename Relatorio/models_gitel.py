@@ -3,7 +3,6 @@ from django.db import models
 class Feacsg(models.Model):
     title = models.CharField(max_length=255, blank=True, null=True)
     color = models.CharField(max_length=25, blank=True, null=True)
-    # primary_key=True exige que null seja False (ou omitido, pois o padrão é False)
     startdate = models.DateTimeField(primary_key=True, blank=True)
     enddate = models.DateTimeField(blank=True, null=True)
     cameras = models.CharField(max_length=10, blank=True, null=True)

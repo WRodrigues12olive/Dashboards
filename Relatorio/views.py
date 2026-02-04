@@ -4,7 +4,7 @@ from django.db.models.functions import TruncMonth, ExtractWeek, Now, Coalesce
 from django.db.models import Avg, ExpressionWrapper, DurationField
 from dateutil.relativedelta import relativedelta
 from django.contrib.auth.views import LoginView, PasswordChangeView, LogoutView
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.urls import reverse_lazy
 from django.contrib import messages
 from .mappings import KEYWORDS_LOCAIS, MAPEAMENTO_PLANO_TAREFAS_DETALHADO, MAPEAMENTO_TECNICOS
@@ -29,6 +29,11 @@ from .models_gitel import (
     Lw01Pinda, Puccsg, Shrcsg, Shrgsp
 )
 
+def eh_o_usuario_permitido(user):
+    return user.username == 'WesleyADM'
+
+@login_required
+@user_passes_test(eh_o_usuario_permitido)
 def dashboard_eventos_gitel(request):
     mapa_tabelas = {
         'feacsg': {'model': Feacsg, 'nome': 'CSG ACI'},
@@ -48,7 +53,7 @@ def dashboard_eventos_gitel(request):
     ModelClass = mapa_tabelas[tabela_selecionada]['model']
     nome_exibicao = mapa_tabelas[tabela_selecionada]['nome']
 
-    # Filtros de Data 
+    # FILTROS DE DATA
     today = datetime.now().date()
     selected_periodo = request.GET.get('periodo', 'este_mes')
     start_date_str = request.GET.get('start_date', '')
@@ -71,73 +76,130 @@ def dashboard_eventos_gitel(request):
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
-            start_date = today - relativedelta(months=6)
+            start_date = today.replace(day=1)
             end_date = today
     else:
-        selected_periodo = '6_meses'
-        start_date = today - relativedelta(months=6)
+        selected_periodo = 'este_mes'
+        start_date = today.replace(day=1)
         end_date = today
 
     end_date_query = end_date + timedelta(days=1)
 
-    #  Query Principal
+    # QUERY PRINCIPAL
     qs = ModelClass.objects.using('gitel_gerdau').filter(
         color__in=['Green', 'Red'],
         startdate__gte=start_date,
         startdate__lt=end_date_query
     )
 
-    # Totais KPI
+    # 1. KPIs
+    count_green = qs.filter(color='Green').count()
+    count_red = qs.filter(color='Red').count()
+    
+    total_green_real = max(0, count_green - count_red)
+    total_red_exibido = count_red
     total_geral = qs.count()
-    total_green = qs.filter(color='Green').count()
-    total_red = qs.filter(color='Red').count()
 
-    # Por Câmera (KPI e Gráfico de Barras)
+    # 2. GRÁFICO 1: STATUS POR CÂMERA
     por_camera = qs.values('cameras').annotate(
         ok=Count('pk', filter=Q(color='Green')),
         nok=Count('pk', filter=Q(color='Red')),
         total=Count('pk')
     ).order_by('-total')
 
-    cameras_labels = [x['cameras'] for x in por_camera]
-    data_camera_green = [x['ok'] for x in por_camera]
-    data_camera_red = [x['nok'] for x in por_camera]
+    cameras_labels = []
+    data_camera_green = []
+    data_camera_red = []
 
-    # Por Dia
+    for x in por_camera:
+        cam = x['cameras']
+        g = x['ok']
+        r = x['nok']
+        real_g = max(0, g - r)
+        
+        cameras_labels.append(cam)
+        data_camera_green.append(real_g)
+        data_camera_red.append(r)
+
+    # 3. GRÁFICO 2 EVOLUÇÃO DIÁRIA
     por_dia = qs.annotate(data=TruncDate('startdate')).values('data').annotate(
         ok=Count('pk', filter=Q(color='Green')),
         nok=Count('pk', filter=Q(color='Red'))
     ).order_by('data')
 
     datas_labels = [x['data'].strftime('%d/%m') for x in por_dia if x['data']]
-    data_dia_green = [x['ok'] for x in por_dia]
-    data_dia_red = [x['nok'] for x in por_dia]
+    data_dia_green = []
+    data_dia_red = []
 
-    from collections import defaultdict
-    dados_risco = defaultdict(lambda: {'AR': 0, 'HC': 0, 'FF': 0, 'HM': 0, 'NP': 0, 'EPI': 0, 'Total': 0})
-    
+    for x in por_dia:
+        g = x['ok']
+        r = x['nok']
+        real_g = max(0, g - r)
+        data_dia_green.append(real_g)
+        data_dia_red.append(r)
+
+    dados_risco = defaultdict(lambda: defaultdict(lambda: {'Green': 0, 'Red': 0}))
+    total_por_camera = defaultdict(int) 
     siglas_validas = ['AR', 'HC', 'FF', 'HM', 'NP', 'EPI']
 
     for item in qs:
         if item.title and item.cameras:
             nome_cam = item.cameras.strip()
-            partes = item.title.strip().split('_')
-            sufixo = partes[-1].upper()
-            
-            if sufixo in siglas_validas:
-                dados_risco[nome_cam][sufixo] += 1
-                dados_risco[nome_cam]['Total'] += 1
+            try:
+                partes = item.title.strip().split('_')
+                if len(partes) > 0:
+                    sufixo = partes[-1].upper()
+                    if sufixo not in siglas_validas and len(partes) > 1:
+                         sufixo_alternativo = partes[-2].upper()
+                         if sufixo_alternativo in siglas_validas:
+                             sufixo = sufixo_alternativo
 
-    # Ordena câmeras
-    cameras_ordenadas_risco = sorted(dados_risco.keys(), key=lambda k: dados_risco[k]['Total'], reverse=True)
+                    if sufixo in siglas_validas:
+                        if item.color == 'Green':
+                            dados_risco[nome_cam][sufixo]['Green'] += 1
+                        elif item.color == 'Red':
+                            dados_risco[nome_cam][sufixo]['Red'] += 1
+            except Exception:
+                continue
+
+    # Calcular totais reais para ordenação E FILTRAGEM
+    cameras_validas = [] # Lista para guardar só quem tem evento > 0
+
+    for cam, siglas in dados_risco.items():
+        soma_real_camera = 0
+        for sigla in siglas_validas:
+            g = siglas[sigla]['Green']
+            r = siglas[sigla]['Red']
+            # Calcula o valor real desta sigla
+            valor_real = max(0, g - r)
+            soma_real_camera += valor_real
+        
+        # Guardamos o total para ordenar depois
+        total_por_camera[cam] = soma_real_camera
+
+        # Só adicionamos na lista de "Câmeras Válidas" se o total real for maior que 0
+        if soma_real_camera > 0:
+            cameras_validas.append(cam)
+
+    # Ordena APENAS as câmeras válidas (que têm eventos > 0)
+    cameras_ordenadas_risco = sorted(cameras_validas, key=lambda k: total_por_camera[k], reverse=True)
 
     risco_labels = cameras_ordenadas_risco
-    data_ar = [dados_risco[cam]['AR'] for cam in cameras_ordenadas_risco]
-    data_hc = [dados_risco[cam]['HC'] for cam in cameras_ordenadas_risco]
-    data_ff = [dados_risco[cam]['FF'] for cam in cameras_ordenadas_risco]
-    data_hm = [dados_risco[cam]['HM'] for cam in cameras_ordenadas_risco]
-    data_np = [dados_risco[cam]['NP'] for cam in cameras_ordenadas_risco]
-    data_epi = [dados_risco[cam]['EPI'] for cam in cameras_ordenadas_risco] 
+    data_ar = []
+    data_hc = []
+    data_ff = []
+    data_hm = []
+    data_np = []
+    data_epi = []
+
+    for cam in cameras_ordenadas_risco:
+        # Para cada câmera válida, calcula os valores finais
+        data_ar.append(max(0, dados_risco[cam]['AR']['Green'] - dados_risco[cam]['AR']['Red']))
+        data_hc.append(max(0, dados_risco[cam]['HC']['Green'] - dados_risco[cam]['HC']['Red']))
+        data_ff.append(max(0, dados_risco[cam]['FF']['Green'] - dados_risco[cam]['FF']['Red']))
+        data_hm.append(max(0, dados_risco[cam]['HM']['Green'] - dados_risco[cam]['HM']['Red']))
+        data_np.append(max(0, dados_risco[cam]['NP']['Green'] - dados_risco[cam]['NP']['Red']))
+        data_epi.append(max(0, dados_risco[cam]['EPI']['Green'] - dados_risco[cam]['EPI']['Red']))
 
     context = {
         'mapa_tabelas': mapa_tabelas,
@@ -147,16 +209,14 @@ def dashboard_eventos_gitel(request):
         'end_date': end_date.strftime('%Y-%m-%d'),
         'selected_periodo': selected_periodo,
         'total_geral': total_geral,
-        'total_green': total_green,
-        'total_red': total_red,
+        'total_green': total_green_real,
+        'total_red': total_red_exibido,
         'cameras_labels': cameras_labels,
         'data_camera_green': data_camera_green,
         'data_camera_red': data_camera_red,
         'datas_labels': datas_labels,
         'data_dia_green': data_dia_green,
         'data_dia_red': data_dia_red,
-        
-        # Dados Risco
         'risco_labels': risco_labels,
         'data_ar': data_ar,
         'data_hc': data_hc,
@@ -608,8 +668,6 @@ def Overview_view(request):
         'gerdau_data': gerdau_data,
     }
 
-    # garante variáveis de drilldown de Gerdau existirem (evita NameError no template)
-    
     return render(request, 'Relatorio/Overview.html', context)
 
 
@@ -659,269 +717,198 @@ def _calculate_cpfl_sla(base_queryset, sla_hours):
 
 @login_required
 def dashboard_view(request):
-    start_date_str = request.GET.get('start_date', '')
-    end_date_str = request.GET.get('end_date', '')
+    # 1. Tratamento de Datas
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
     selected_local = request.GET.get('local_grupo', 'Todos')
-
-    base_qs = OrdemDeServico.objects.all()
+    
+    start_date = None
+    end_date = None
+    
     if start_date_str and end_date_str:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
-            base_qs = base_qs.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
-        except (ValueError, TypeError):
+        except ValueError:
             pass
 
-    ids_hc_ativo = set(Tarefa.objects.filter(
-        ordem_de_servico__in=base_qs,
-        Ativo__icontains='HOSPITAL DE CLINICAS'
-    ).values_list('ordem_de_servico_id', flat=True))
+    # 2. QuerySet Base Otimizado 
+    qs = OrdemDeServico.objects.all().no_periodo(start_date, end_date)
 
-    ids_hc_local = set(base_qs.filter(
-        Local_Empresa__icontains='HOSPITAL DE CLINICAS'
-    ).values_list('id', flat=True))
-
-    all_hc_ids = ids_hc_ativo.union(ids_hc_local)  
-    ordens_no_periodo = base_qs 
-
-    if start_date_str and end_date_str:
-        try:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
-            ordens_no_periodo = ordens_no_periodo.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
-        except (ValueError, TypeError):
-            pass
-
+    # 3. Filtro de Local
     if selected_local and selected_local != 'Todos':
-        sel = (selected_local or '').strip()
-        if sel.upper() == 'HOSPITAL DE CLINICAS':
-            ordens_no_periodo = ordens_no_periodo.filter(id__in=all_hc_ids)
-        elif sel.lower() == 'gerdau':
-            ordens_no_periodo = ordens_no_periodo.filter(Local_Empresa__icontains='gerdau')
-        elif sel.lower() == 'gerdau outros':
-            qs = ordens_no_periodo.filter(Local_Empresa__icontains='gerdau')
-            for kw in KEYWORDS_LOCAIS:
-                if kw.upper().startswith('GERDAU'):
-                    qs = qs.exclude(Local_Empresa__icontains=kw)
-            ordens_no_periodo = qs
-        elif any(sel.lower() == kw.title().lower() for kw in KEYWORDS_LOCAIS):
-            ordens_no_periodo = ordens_no_periodo.filter(Local_Empresa__icontains=sel)
+        if selected_local == 'Gerdau Outros':
+             qs = qs.filter(Local_Agrupado='Gerdau', Local_Detalhado='Gerdau Outros')
         else:
-            ids_para_filtrar = [
-                os['id'] for os in
-                ordens_no_periodo.exclude(id__in=all_hc_ids).exclude(Local_Empresa__isnull=True).values('id', 'Local_Empresa')
-                if get_grupo_local(os['Local_Empresa']) == selected_local
-            ]
-            ordens_no_periodo = ordens_no_periodo.filter(id__in=ids_para_filtrar)
+             qs = qs.filter(Local_Agrupado=selected_local)
 
+    # 4. Métricas Gerais
+    metrics = qs.aggregate(
+        total=Count('id'),
+        concluidas=Count('id', filter=Q(Status='Concluído')),
+        canceladas=Count('id', filter=Q(Status='Cancelado')),
+        em_processo=Count('id', filter=Q(Status='Em Processo')),
+        em_verificacao=Count('id', filter=Q(Status='Em Verificação')),
+        com_ticket=Count('id', filter=Q(Possui_Ticket='Sim')),
+        sem_ticket=Count('id', filter=Q(Possui_Ticket='Não')),
+    )
 
-    os_abertas_no_periodo = ordens_no_periodo.count()
-    os_concluidas = ordens_no_periodo.filter(Status='Concluído').count()
-    os_canceladas = ordens_no_periodo.filter(Status='Cancelado').count()
-    os_em_processo = ordens_no_periodo.filter(Status='Em Processo').count()
-    os_em_verificacao = ordens_no_periodo.filter(Status='Em Verificação').count()
+    # 5. Gráficos Principais 
+    os_por_status = qs.values('Status').annotate(total=Count('id')).order_by('-total')
+    
+    os_por_criticidade = qs.values('Nivel_de_Criticidade').annotate(total=Count('id')).order_by('-total')
 
-    os_por_status = ordens_no_periodo.values('Status').annotate(total=Count('Status')).order_by('-total')
-    os_por_criticidade = ordens_no_periodo.values('Nivel_de_Criticidade').annotate(
-        total=Count('Nivel_de_Criticidade')).order_by('-total')
-    os_por_ticket = ordens_no_periodo.exclude(Possui_Ticket__isnull=True).values('Possui_Ticket').annotate(
-        total=Count('id')).order_by('Possui_Ticket')
+    os_por_local = qs.values('Local_Agrupado').annotate(total=Count('id')).order_by('-total')
+    local_agrupado_labels = [item['Local_Agrupado'] for item in os_por_local if item['Local_Agrupado']]
+    local_agrupado_data = [item['total'] for item in os_por_local if item['Local_Agrupado']]
 
-    os_por_mes_qs = (OrdemDeServico.objects.annotate(mes=TruncMonth('Data_Criacao_OS')).values('mes').annotate(
-        total=Count('id')).order_by('mes'))
+    # Drilldown Gerdau
+    os_gerdau = qs.filter(Local_Agrupado='Gerdau').values('Local_Detalhado').annotate(total=Count('id')).order_by('-total')
+    gerdau_labels = [item['Local_Detalhado'] for item in os_gerdau]
+    gerdau_data = [item['total'] for item in os_gerdau]
+
+    # 6. Tarefas e Técnicos
+    tarefas_qs = Tarefa.objects.filter(ordem_de_servico__in=qs)
+    
+    por_tipo_tarefa = tarefas_qs.values('Tipo_Tarefa_Agrupado').annotate(
+        total=Count('ordem_de_servico', distinct=True)
+    ).order_by('-total')
+    
+    tipo_tarefa_grupo_labels = [t['Tipo_Tarefa_Agrupado'] for t in por_tipo_tarefa if t['Tipo_Tarefa_Agrupado']]
+    tipo_tarefa_grupo_data = [t['total'] for t in por_tipo_tarefa if t['Tipo_Tarefa_Agrupado']]
+
+    por_tecnico = tarefas_qs.values('Responsavel_Agrupado').annotate(
+        total=Count('ordem_de_servico', distinct=True)
+    ).order_by('-total')
+    
+    tecnico_grupo_labels = [t['Responsavel_Agrupado'] for t in por_tecnico if t['Responsavel_Agrupado']]
+    tecnico_grupo_data = [t['total'] for t in por_tecnico if t['Responsavel_Agrupado']]
+
+    os_por_mes_qs = (
+        qs.annotate(mes=TruncMonth('Data_Criacao_OS'))
+        .values('mes')
+        .annotate(total=Count('id'))
+        .order_by('mes')
+    )
     mes_labels = [d['mes'].strftime('%b/%Y') for d in os_por_mes_qs if d['mes']]
     mes_data = [d['total'] for d in os_por_mes_qs if d['mes']]
 
-    os_ativas = ordens_no_periodo.exclude(Status__in=['Concluído', 'Cancelado'])
+    # 8. Gráfico de Status de Execução
+    os_ativas = qs.exclude(Status__in=['Concluído', 'Cancelado'])
+    
     ids_com_tarefa_in_progress = set(
-        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list(
-            'ordem_de_servico_id', flat=True))
+        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list('ordem_de_servico_id', flat=True)
+    )
     ids_com_avanco_e_processo = set(
-        os_ativas.filter(Status='Em Processo', Avanco_da_OS__gt=0).values_list('id', flat=True))
+        os_ativas.filter(Status='Em Processo', Avanco_da_OS__gt=0).values_list('id', flat=True)
+    )
     em_andamento_ids = ids_com_tarefa_in_progress.union(ids_com_avanco_e_processo)
+    
     candidatas_pausadas_ids = set(
-        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='PAUSED').values_list(
-            'ordem_de_servico_id', flat=True))
+        Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='PAUSED').values_list('ordem_de_servico_id', flat=True)
+    )
     ids_em_verificacao = set(os_ativas.filter(Status='Em Verificação').values_list('id', flat=True))
+    
     pausadas_ids = candidatas_pausadas_ids - em_andamento_ids - ids_em_verificacao
+    
     ids_ja_classificadas = em_andamento_ids.union(pausadas_ids)
-    candidatas_restantes = os_ativas.exclude(id__in=ids_ja_classificadas)
-    nao_iniciadas_ids = set(
-        candidatas_restantes.filter(Q(Avanco_da_OS=0) | Q(Avanco_da_OS__isnull=True), Status='Em Processo').values_list(
-            'id', flat=True))
-    em_andamento_count, pausadas_count, nao_iniciadas_count = len(em_andamento_ids), len(pausadas_ids), len(
-        nao_iniciadas_ids)
+    
+    # Nao iniciadas
+    nao_iniciadas_count = os_ativas.exclude(id__in=ids_ja_classificadas).filter(
+        Q(Avanco_da_OS=0) | Q(Avanco_da_OS__isnull=True), Status='Em Processo'
+    ).count()
 
-    # 5. Lógica de Agregação do Gráfico de Locais
+    em_andamento_count = len(em_andamento_ids)
+    pausadas_count = len(pausadas_ids)
 
-    grupos_finais = defaultdict(int)
+    # 9. SLAs 
+    sla_atendimento_c0 = _calculate_sla_for_group(qs, '(C0)', 3)
+    sla_atendimento_c1 = _calculate_sla_for_group(qs, '(C1)', 12)
+    sla_atendimento_c2 = _calculate_sla_for_group(qs, '(C2)', 24)
 
-    contagem_por_local = (base_qs  
-                          .exclude(id__in=all_hc_ids)  
-                          .exclude(Local_Empresa__isnull=True)
-                          .exclude(Local_Empresa__exact='')
-                          .values('Local_Empresa')
-                          .annotate(total=Count('id'))
-                          )
+    sla_resolucao_c0 = _calculate_resolution_sla_for_group(qs, '(C0)', 8)
+    sla_resolucao_c1 = _calculate_resolution_sla_for_group(qs, '(C1)', 24)
+    sla_resolucao_c2 = _calculate_resolution_sla_for_group(qs, '(C2)', 48)
 
-    # Agrupa locais; agrega todos os 'GERDAU' sob 'Gerdau' e mantém um mapa detalhado para drilldown
-    gerdau_groups = defaultdict(int)
-    for item in contagem_por_local:
-        local_raw = item.get('Local_Empresa') or ''
-        local_upper = local_raw.upper()
-        if 'GERDAU' in local_upper:
-            # incrementa a soma agregada "Gerdau"
-            grupos_finais['Gerdau'] += item['total']
-            # tenta identificar sub-site específico (pela lista de KEYWORDS_LOCAIS)
-            subgroup = None
-            for kw in KEYWORDS_LOCAIS:
-                if kw.upper().startswith('GERDAU') and kw.upper() in local_upper:
-                    subgroup = kw.title()
-                    break
-            if not subgroup:
-                subgroup = 'Gerdau Outros'
-            gerdau_groups[subgroup] += item['total']
-        else:
-            grupo = get_grupo_local(local_raw)
-            if grupo.upper() != 'HOSPITAL DE CLINICAS':
-                grupos_finais[grupo] += item['total']
+    sla_parkshopping_data = _calculate_parkshopping_sla(qs, 24)
+    sla_cpfl_data = _calculate_cpfl_sla(qs, 72)
 
-    grupos_ordenados = sorted(grupos_finais.items(), key=lambda x: x[1], reverse=True)
-    local_agrupado_labels = [item[0] for item in grupos_ordenados]
-    local_agrupado_data = [item[1] for item in grupos_ordenados]
-
-    # dados detalhados de Gerdau (para drilldown)
-    gerdau_ordenados = sorted(gerdau_groups.items(), key=lambda x: x[1], reverse=True)
-    gerdau_labels = [item[0] for item in gerdau_ordenados]
-    gerdau_data = [item[1] for item in gerdau_ordenados]
-
-    tarefas_tipos_no_periodo = Tarefa.objects.filter(
-        ordem_de_servico__in=ordens_no_periodo
-    ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact=''
-                                                   ).values(
-        'ordem_de_servico_id',
-        'Tipo_de_Tarefa',
-    )
-
-    grupos_tipo_por_os = defaultdict(set)
-    for tarefa_data in tarefas_tipos_no_periodo:
-        os_id = tarefa_data['ordem_de_servico_id']
-        tipo_tarefa = tarefa_data['Tipo_de_Tarefa']
-        grupo_tipo = get_grupo_tipo_tarefa(tipo_tarefa)
-        grupos_tipo_por_os[os_id].add(grupo_tipo)
-
-    contagem_grupo_tipo_tarefa = defaultdict(int)
-    for os_id, grupos_da_os in grupos_tipo_por_os.items():
-        for grupo in grupos_da_os:
-            contagem_grupo_tipo_tarefa[grupo] += 1
-    tipo_tarefa_grupo_labels = list(contagem_grupo_tipo_tarefa.keys())
-    tipo_tarefa_grupo_data = list(contagem_grupo_tipo_tarefa.values())
-
-    tarefas_tecnicos_no_periodo = Tarefa.objects.filter(
-        ordem_de_servico__in=ordens_no_periodo
-    ).exclude(Responsavel__isnull=True).exclude(Responsavel__exact=''
-                                                ).values(
-        'ordem_de_servico_id',
-        'Responsavel'
-    )
-    grupos_tecnico_por_os = defaultdict(set)
-    for tarefa_data in tarefas_tecnicos_no_periodo:
-        os_id = tarefa_data['ordem_de_servico_id']
-        responsavel = tarefa_data['Responsavel']
-        grupo_tecnico = get_grupo_tecnico(responsavel)
-        grupos_tecnico_por_os[os_id].add(grupo_tecnico)
-
-    contagem_grupo_tecnico = defaultdict(int)
-    for os_id, grupos_da_os in grupos_tecnico_por_os.items():
-        for grupo in grupos_da_os:
-            contagem_grupo_tecnico[grupo] += 1
-    grupos_tecnico_ordenados = sorted(contagem_grupo_tecnico.items(), key=lambda item: item[1], reverse=True)
-    tecnico_grupo_labels = [item[0] for item in grupos_tecnico_ordenados]
-    tecnico_grupo_data = [item[1] for item in grupos_tecnico_ordenados]
-
-    # SLAs (usam 'ordens_no_periodo' filtrado)
-    sla_atendimento_c0 = _calculate_sla_for_group(ordens_no_periodo, '(C0)', 3)
-    sla_atendimento_c1 = _calculate_sla_for_group(ordens_no_periodo, '(C1)', 12)
-    sla_atendimento_c2 = _calculate_sla_for_group(ordens_no_periodo, '(C2)', 24)
-
-    sla_resolucao_c0 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C0)', 8)
-    sla_resolucao_c1 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C1)', 24)
-    sla_resolucao_c2 = _calculate_resolution_sla_for_group(ordens_no_periodo, '(C2)', 48)
-
-    sla_parkshopping_data = _calculate_parkshopping_sla(ordens_no_periodo, 24)
-    sla_cpfl_data = _calculate_cpfl_sla(ordens_no_periodo, 72)
-
-    # Gráfico Semanal (Histórico GERAL, não deve ser filtrado)
+    # 10. Gráfico Semanal 
     anos_disponiveis = OrdemDeServico.objects.values_list('Ano_Criacao', flat=True).distinct().order_by('-Ano_Criacao')
     selected_year_weekly = request.GET.get('selected_year_weekly')
     weekly_labels, weekly_data_points = [], []
+    
     if selected_year_weekly:
         try:
             selected_year_weekly = int(selected_year_weekly)
-            weekly_counts_from_db = (OrdemDeServico.objects.filter(Ano_Criacao=selected_year_weekly).annotate(
-                semana=ExtractWeek('Data_Criacao_OS')).values('semana').annotate(total=Count('id')).order_by('semana'))
-            counts_dict = {item['semana']: item['total'] for item in weekly_counts_from_db}
-            weekly_labels, weekly_data_points = [f"Sem {i}" for i in range(1, 54)], [counts_dict.get(i, 0) for i in
-                                                                                     range(1, 54)]
+            weekly_counts = (
+                OrdemDeServico.objects
+                .filter(Ano_Criacao=selected_year_weekly)
+                .annotate(semana=ExtractWeek('Data_Criacao_OS'))
+                .values('semana')
+                .annotate(total=Count('id'))
+                .order_by('semana')
+            )
+            counts_dict = {item['semana']: item['total'] for item in weekly_counts if item['semana']}
+            weekly_labels = [f"Sem {i}" for i in range(1, 54)]
+            weekly_data_points = [counts_dict.get(i, 0) for i in range(1, 54)]
         except (ValueError, TypeError):
             selected_year_weekly = None
 
-    # Lista de locais para o dropdown (Estático, OK)
-    # Monta dropdown com Gerdau agregado + específicos + 'Gerdau Outros' + demais locais + 'Outros'
-    todos_locais = sorted([kw.title() for kw in KEYWORDS_LOCAIS])
-    gerdau_especificos = [l for l in todos_locais if l.upper().startswith('GERDAU')]
-    outros_locais = [l for l in todos_locais if not l.upper().startswith('GERDAU')]
-    grupos_de_local_disponiveis = ['Todos', 'Gerdau'] + sorted(gerdau_especificos) + ['Gerdau Outros'] + sorted(outros_locais) + ['Outros']
-
-    # Contexto final
-    # garante variáveis de drilldown de Gerdau existirem (evita NameError no template)
-    try:
-        gerdau_labels
-    except NameError:
-        gerdau_labels = []
-    try:
-        gerdau_data
-    except NameError:
-        gerdau_data = []
-
     context = {
-        'os_abertas_no_periodo': os_abertas_no_periodo, 'os_concluidas': os_concluidas,
-        'os_em_processo': os_em_processo,
-        'os_em_verificacao': os_em_verificacao, 'os_canceladas': os_canceladas,
+        'os_abertas_no_periodo': metrics['total'],
+        'os_concluidas': metrics['concluidas'],
+        'os_em_processo': metrics['em_processo'],
+        'os_em_verificacao': metrics['em_verificacao'],
+        'os_canceladas': metrics['canceladas'],
+        
         'status_labels': [item['Status'] for item in os_por_status],
         'status_data': [item['total'] for item in os_por_status],
+        
         'criticidade_labels': [item['Nivel_de_Criticidade'] for item in os_por_criticidade],
         'criticidade_data': [item['total'] for item in os_por_criticidade],
-        'ticket_labels': [item['Possui_Ticket'] for item in os_por_ticket],
-        'ticket_data': [item['total'] for item in os_por_ticket],
-
-        'mes_labels': mes_labels,  # <- Corrigido (usando query separada)
-        'mes_data': mes_data,  # <- Corrigido (usando query separada)
-
-        'execucao_status_labels': ['Em Andamento', 'Pausadas', 'Não Iniciadas'],
-        'execucao_status_data': [em_andamento_count, pausadas_count, nao_iniciadas_count],
-
-        'local_agrupado_labels': local_agrupado_labels,  # <- Corrigido
-        'local_agrupado_data': local_agrupado_data,  # <- Corrigido
+        
+        'ticket_labels': ['Com Ticket', 'Sem Ticket'],
+        'ticket_data': [metrics['com_ticket'], metrics['sem_ticket']],
+        
+        'local_agrupado_labels': local_agrupado_labels,
+        'local_agrupado_data': local_agrupado_data,
+        
         'gerdau_labels': gerdau_labels,
         'gerdau_data': gerdau_data,
-
-        'start_date': start_date_str, 'end_date': end_date_str,
+        
+        'tecnico_grupo_labels': tecnico_grupo_labels,
+        'tecnico_grupo_data': tecnico_grupo_data,
+        
         'tipo_tarefa_grupo_labels': tipo_tarefa_grupo_labels,
         'tipo_tarefa_grupo_data': tipo_tarefa_grupo_data,
-        'anos_disponiveis': anos_disponiveis, 'selected_year_weekly': selected_year_weekly,
-        'weekly_labels': weekly_labels, 'weekly_data_points': weekly_data_points,
-        'sla_atendimento_c0_data': sla_atendimento_c0, 'sla_atendimento_c1_data': sla_atendimento_c1,
+
+        'mes_labels': mes_labels,
+        'mes_data': mes_data,
+        
+        'execucao_status_labels': ['Em Andamento', 'Pausadas', 'Não Iniciadas'],
+        'execucao_status_data': [em_andamento_count, pausadas_count, nao_iniciadas_count],
+        
+        'sla_atendimento_c0_data': sla_atendimento_c0, 
+        'sla_atendimento_c1_data': sla_atendimento_c1,
         'sla_atendimento_c2_data': sla_atendimento_c2,
-        'sla_resolucao_c0_data': sla_resolucao_c0, 'sla_resolucao_c1_data': sla_resolucao_c1,
+        'sla_resolucao_c0_data': sla_resolucao_c0, 
+        'sla_resolucao_c1_data': sla_resolucao_c1,
         'sla_resolucao_c2_data': sla_resolucao_c2,
         'sla_parkshopping_data': sla_parkshopping_data,
         'sla_cpfl_data': sla_cpfl_data,
-        'grupos_de_local_disponiveis': grupos_de_local_disponiveis,
+        
+        'anos_disponiveis': anos_disponiveis, 
+        'selected_year_weekly': selected_year_weekly,
+        'weekly_labels': weekly_labels, 
+        'weekly_data_points': weekly_data_points,
+        
+        'start_date': start_date_str, 
+        'end_date': end_date_str,
+        'grupos_de_local_disponiveis': ['Todos'] + sorted(list(set(local_agrupado_labels))),
         'selected_local': selected_local,
-        'tecnico_grupo_labels': tecnico_grupo_labels,
-        'tecnico_grupo_data': tecnico_grupo_data,
     }
+
     return render(request, 'Relatorio/dashboard.html', context)
 
 
@@ -1094,14 +1081,14 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
             # Agregado: todas ocorrências que contenham 'gerdau'
             if cat_norm.lower() == 'gerdau':
                 base_queryset = base_queryset.filter(Local_Empresa__icontains='gerdau')
-            # 'Gerdau Outros': contém 'gerdau' mas NÃO contém nenhum dos keywords específicos
+
             elif cat_norm.lower() == 'gerdau outros':
                 qs = base_queryset.filter(Local_Empresa__icontains='gerdau')
                 for kw in KEYWORDS_LOCAIS:
                     if kw.upper().startswith('GERDAU'):
                         qs = qs.exclude(Local_Empresa__icontains=kw)
                 base_queryset = qs
-            # subsite específico (ex: "Gerdau Cearense")
+            # subsite específico 
             elif any(cat_norm.lower() == kw.title().lower() for kw in KEYWORDS_LOCAIS):
                 base_queryset = base_queryset.filter(Local_Empresa__icontains=cat_norm)
             else:
@@ -1153,48 +1140,79 @@ def resultado_view(request):
 
     dados_qs = _get_dados_filtrados(tipo_relatorio, categoria, start_date, end_date).prefetch_related('tarefas')
 
+    def fmt_dt(dt):
+        try:
+            return dt.strftime('%d/%m/%Y %H:%M:%S') if dt else ''
+        except Exception:
+            return str(dt) if dt else ''
+
     linhas = []
     for os in dados_qs:
+        # Mapeamento de Cliente
         cliente_grupo = get_grupo_local(os.Local_Empresa)
         is_hc = False
-        try:
-            if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
-                is_hc = True
-            else:
-                for tarefa in os.tarefas.all():
+        
+        if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
+            is_hc = True
+        else:
+            try:
+                for tarefa in os.tarefas.all(): 
                     if tarefa.Ativo and 'HOSPITAL DE CLINICAS' in tarefa.Ativo.upper():
                         is_hc = True
                         break
-        except Exception:
-            pass
-        if is_hc:
-            cliente_grupo = 'Hospital De Clinicas'
+            except Exception: 
+                pass 
 
+        if is_hc: cliente_grupo = 'Hospital De Clinicas' 
+
+        # Técnicos e Tarefas
         tecnicos_set = set()
         tipos_tarefa_set = set()
-        is_preventiva = False
+        ativos_set = set()
+        is_preventiva = False 
+
         try:
-            for tarefa in os.tarefas.all():
+            for tarefa in os.tarefas.all(): 
                 if tarefa.Responsavel:
                     tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
                 if tarefa.Tipo_de_Tarefa:
                     tipos_tarefa_set.add(get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa))
                     if 'Preventiva' in tarefa.Tipo_de_Tarefa:
                         is_preventiva = True
+                if tarefa.Ativo:
+                    ativos_set.add(tarefa.Ativo)
         except Exception:
             pass
 
-        tecnico_resp = ", ".join(sorted([t for t in tecnicos_set if t and t != 'Não Mapeado']))
-        tipo_tarefa = ", ".join(sorted([t for t in tipos_tarefa_set if t]))
+        tecnico_resp = ", ".join(sorted(list(tecnicos_set)))
+        tipo_tarefa = ", ".join(sorted(list(tipos_tarefa_set)))
+        ativos_str = " | ".join(sorted(list(ativos_set)))
 
-        tempo_em_execucao_td = getattr(os, 'tempo_em_execucao', None)
-        tempo_em_verificacao_td = getattr(os, 'tempo_em_verificacao', None)
+        # 1. Tempo de Atendimento 
+        tempo_atendimento_td = None
+        if os.Data_Iniciou_OS and os.Data_Criacao_OS:
+            tempo_atendimento_td = os.Data_Iniciou_OS - os.Data_Criacao_OS
 
+        # 2. Tempo em Execução 
+        tempo_em_execucao_td = None
+        if os.Data_Enviado_Verificacao and os.Data_Iniciou_OS:
+            tempo_em_execucao_td = os.Data_Enviado_Verificacao - os.Data_Iniciou_OS
+
+        # 3. Tempo em Verificação
+        tempo_em_verificacao_td = None
+        if os.Data_Finalizacao_OS and os.Data_Enviado_Verificacao:
+            tempo_em_verificacao_td = os.Data_Finalizacao_OS - os.Data_Enviado_Verificacao
+
+        tempo_total_para_sla = None
+        if os.Data_Enviado_Verificacao and os.Data_Criacao_OS:
+            tempo_total_para_sla = os.Data_Enviado_Verificacao - os.Data_Criacao_OS
+        
+        # SLAs
         sla_atendido = ""
         sla_violado = ""
-        local_upper = (os.Local_Empresa or '').upper()
-        if not is_preventiva and os.Data_Enviado_Verificacao and tempo_em_execucao_td:
-            if 'GERDAU' in local_upper:
+        
+        if not is_preventiva and tempo_total_para_sla:
+            if cliente_grupo == 'Gerdau':
                 ativo_code = None
                 try:
                     tarefa_ativos = [t.Ativo for t in os.tarefas.all() if t.Ativo]
@@ -1205,41 +1223,72 @@ def resultado_view(request):
                     pass
                 sla_hours_map = {'(C0)': 8, '(C1)': 24, '(C2)': 48}
                 if ativo_code and ativo_code in sla_hours_map:
-                    if tempo_em_execucao_td <= timedelta(hours=sla_hours_map[ativo_code]):
+                    if tempo_total_para_sla <= timedelta(hours=sla_hours_map[ativo_code]):
                         sla_atendido = "Sim"; sla_violado = "Não"
                     else:
                         sla_atendido = "Não"; sla_violado = "Sim"
+            
             elif cliente_grupo == 'Park Shopping Canoas':
-                if tempo_em_execucao_td <= timedelta(hours=24):
+                if tempo_total_para_sla <= timedelta(hours=24):
                     sla_atendido = "Sim"; sla_violado = "Não"
                 else:
                     sla_atendido = "Não"; sla_violado = "Sim"
+            
             elif cliente_grupo == 'Cpfl':
-                if tempo_em_execucao_td <= timedelta(hours=72):
+                if tempo_total_para_sla <= timedelta(hours=72):
                     sla_atendido = "Sim"; sla_violado = "Não"
                 else:
                     sla_atendido = "Não"; sla_violado = "Sim"
 
-        # formata datas para exibição
-        def fmt_dt(dt):
-            try:
-                return dt.strftime('%d/%m/%Y %H:%M:%S') if dt else ''
-            except Exception:
-                return str(dt) if dt else ''
+        # Descrições 
+        types_desc_str = ""
+        causes_desc_str = ""
+        detection_desc_str = ""
 
+        try:
+            for tarefa in os.tarefas.all():
+                # Coleta dados acumulativos (Técnicos, Tipos, Ativos)
+                if tarefa.Responsavel:
+                    tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
+                if tarefa.Tipo_de_Tarefa:
+                    tipos_tarefa_set.add(get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa))
+                    if 'Preventiva' in tarefa.Tipo_de_Tarefa: is_preventiva = True
+                if tarefa.Ativo:
+                    ativos_set.add(tarefa.Ativo)
+                
+                if not types_desc_str and tarefa.types_description:
+                    types_desc_str = tarefa.types_description.strip()
+                
+                if not causes_desc_str and tarefa.causes_description:
+                    causes_desc_str = tarefa.causes_description.strip()
+                
+                if not detection_desc_str and tarefa.detection_method_description:
+                    detection_desc_str = tarefa.detection_method_description.strip()
+
+        except Exception: pass
+        
         row = {
             'OS': os.OS,
             'Status': os.Status,
             'Cliente': cliente_grupo,
             'Tecnico_Responsavel': tecnico_resp,
+            'Ativo': ativos_str,
+            'Descricao_OS': os.Observacao_OS,
             'Tipo_de_Tarefa': tipo_tarefa,
+            'Descricao_Tipo': types_desc_str,
+            'Descricao_Causa': causes_desc_str,
+            'Metodo_Deteccao': detection_desc_str,
             'Data_Criacao': fmt_dt(os.Data_Criacao_OS),
             'Data_Inicio': fmt_dt(os.Data_Iniciou_OS),
             'Data_Conclusao_Tecnica': fmt_dt(os.Data_Enviado_Verificacao),
             'Data_Finalizacao': fmt_dt(os.Data_Finalizacao_OS),
             'Avanco_pct': os.Avanco_da_OS if os.Avanco_da_OS is not None else 0,
+            
+            # Usando as variáveis calculadas acima
+            'Tempo_de_Atendimento': format_excel_timedelta(tempo_atendimento_td),
             'Tempo_em_Execucao': format_excel_timedelta(tempo_em_execucao_td),
             'Tempo_em_Verificacao': format_excel_timedelta(tempo_em_verificacao_td),
+            
             'SLA_Atendido': sla_atendido,
             'SLA_Violado': sla_violado
         }
@@ -1247,12 +1296,9 @@ def resultado_view(request):
 
     tipo_relatorio_display = ''
     if tipo_relatorio:
-        if tipo_relatorio == 'plano_tarefas_agrupados':
-            tipo_relatorio_display = 'Ocorrências por Grupo de Plano de Tarefas'
-        elif tipo_relatorio == 'tecnico_agrupados':
-            tipo_relatorio_display = 'Ocorrências por Grupo de Técnico'
-        else:
-            tipo_relatorio_display = tipo_relatorio.replace("_", " ").title()
+        if tipo_relatorio == 'plano_tarefas_agrupados': tipo_relatorio_display = 'Ocorrências por Grupo de Plano de Tarefas'
+        elif tipo_relatorio == 'tecnico_agrupados': tipo_relatorio_display = 'Ocorrências por Grupo de Técnico'
+        else: tipo_relatorio_display = tipo_relatorio.replace("_", " ").title()
 
     context = {
         'linhas': linhas,
@@ -1285,55 +1331,84 @@ def gerar_excel_view(request):
         tipo_relatorio, categoria, start_date, end_date
     ).prefetch_related('tarefas')
 
+    if not dados_filtrados.exists():
+        return HttpResponse("Não foram encontrados dados para os filtros e datas selecionados.")
+
+    def fmt_dt(dt):
+        try: return dt.strftime('%d/%m/%Y %H:%M:%S') if dt else ''
+        except Exception: return str(dt) if dt else ''
+
     dados_para_excel = []
 
     for os in dados_filtrados:
-        
-        # Mapeamento de Cliente (incluindo lógica HC) ---
         cliente_grupo = get_grupo_local(os.Local_Empresa)
         is_hc = False
-        
-        # Verifica se o local já é HC
-        if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS':
-            is_hc = True
+        if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS': is_hc = True
         else:
             try:
                 for tarefa in os.tarefas.all(): 
                     if tarefa.Ativo and 'HOSPITAL DE CLINICAS' in tarefa.Ativo.upper():
-                        is_hc = True
-                        break
-            except Exception: 
-                pass 
+                        is_hc = True; break
+            except Exception: pass 
+        if is_hc: cliente_grupo = 'Hospital De Clinicas' 
 
-        if is_hc:
-            cliente_grupo = 'Hospital De Clinicas' 
-
+        # Técnicos, Ativos e Tipos
         tecnicos_set = set()
         tipos_tarefa_set = set()
+        ativos_set = set()
         is_preventiva = False 
+
+        types_desc_str = ""
+        causes_desc_str = ""
+        detection_desc_str = ""
 
         try:
             for tarefa in os.tarefas.all(): 
-                if tarefa.Responsavel:
-                    tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
+                # Coleta acumulativa
+                if tarefa.Responsavel: tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
                 if tarefa.Tipo_de_Tarefa:
                     tipos_tarefa_set.add(get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa))
-                    if 'Preventiva' in tarefa.Tipo_de_Tarefa:
-                        is_preventiva = True
-        except Exception:
-            pass
+                    if 'Preventiva' in tarefa.Tipo_de_Tarefa: is_preventiva = True
+                if tarefa.Ativo:
+                    ativos_set.add(tarefa.Ativo)
+                
+                # LÓGICA DA PRIMEIRA DESCRIÇÃO 
+                if not types_desc_str and tarefa.types_description: 
+                    types_desc_str = tarefa.types_description.strip()
+                
+                if not causes_desc_str and tarefa.causes_description: 
+                    causes_desc_str = tarefa.causes_description.strip()
+                
+                if not detection_desc_str and tarefa.detection_method_description: 
+                    detection_desc_str = tarefa.detection_method_description.strip()
+
+        except Exception: pass
             
         tecnico_resp = ", ".join(sorted(list(tecnicos_set)))
         tipo_tarefa = ", ".join(sorted(list(tipos_tarefa_set)))
+        ativos_str = " | ".join(sorted(list(ativos_set)))
 
+        # Tempos
+        tempo_atendimento_td = None
+        if os.Data_Iniciou_OS and os.Data_Criacao_OS:
+            tempo_atendimento_td = os.Data_Iniciou_OS - os.Data_Criacao_OS
+
+        tempo_em_execucao_td = None
+        if os.Data_Enviado_Verificacao and os.Data_Iniciou_OS:
+            tempo_em_execucao_td = os.Data_Enviado_Verificacao - os.Data_Iniciou_OS
+
+        tempo_em_verificacao_td = None
+        if os.Data_Finalizacao_OS and os.Data_Enviado_Verificacao:
+            tempo_em_verificacao_td = os.Data_Finalizacao_OS - os.Data_Enviado_Verificacao
+        
+        tempo_total_para_sla = None
+        if os.Data_Enviado_Verificacao and os.Data_Criacao_OS:
+            tempo_total_para_sla = os.Data_Enviado_Verificacao - os.Data_Criacao_OS
+
+        # SLA 
         sla_atendido = ""
         sla_violado = ""
-        
-        tempo_em_execucao_td = os.tempo_em_execucao
-        tempo_em_verificacao_td = os.tempo_em_verificacao
-
-        if not is_preventiva and os.Data_Enviado_Verificacao and tempo_em_execucao_td:
-            
+        if not is_preventiva and tempo_total_para_sla:
             if cliente_grupo == 'Gerdau':
                 ativo_code = None
                 try:
@@ -1341,102 +1416,65 @@ def gerar_excel_view(request):
                     if any('(C0)' in a for a in tarefa_ativos): ativo_code = '(C0)'
                     elif any('(C1)' in a for a in tarefa_ativos): ativo_code = '(C1)'
                     elif any('(C2)' in a for a in tarefa_ativos): ativo_code = '(C2)'
-                except Exception:
-                    pass
-
+                except Exception: pass
                 sla_hours_map = {'(C0)': 8, '(C1)': 24, '(C2)': 48}
-                
                 if ativo_code and ativo_code in sla_hours_map:
-                    if tempo_em_execucao_td <= timedelta(hours=sla_hours_map[ativo_code]):
-                        sla_atendido = "Sim"
-                        sla_violado = "Não"
-                    else:
-                        sla_atendido = "Não"
-                        sla_violado = "Sim"
-
+                    if tempo_total_para_sla <= timedelta(hours=sla_hours_map[ativo_code]): sla_atendido = "Sim"; sla_violado = "Não"
+                    else: sla_atendido = "Não"; sla_violado = "Sim"
             elif cliente_grupo == 'Park Shopping Canoas':
-                if tempo_em_execucao_td <= timedelta(hours=24):
-                    sla_atendido = "Sim"
-                    sla_violado = "Não"
-                else:
-                    sla_atendido = "Não"
-                    sla_violado = "Sim"
-
+                if tempo_total_para_sla <= timedelta(hours=24): sla_atendido = "Sim"; sla_violado = "Não"
+                else: sla_atendido = "Não"; sla_violado = "Sim"
             elif cliente_grupo == 'Cpfl':
-                if tempo_em_execucao_td <= timedelta(hours=72):
-                    sla_atendido = "Sim"
-                    sla_violado = "Não"
-                else:
-                    sla_atendido = "Não"
-                    sla_violado = "Sim"
+                if tempo_total_para_sla <= timedelta(hours=72): sla_atendido = "Sim"; sla_violado = "Não"
+                else: sla_atendido = "Não"; sla_violado = "Sim"
 
         row = {
             'OS': os.OS,
             'Status': os.Status,
             'Cliente': cliente_grupo,
-            'Tecnico_Responsavel': tecnico_resp,
-            'Tipo_de_Tarefa': tipo_tarefa,
-            'Data_Criacao': fmt_dt(os.Data_Criacao_OS),
-            'Data_Inicio': fmt_dt(os.Data_Iniciou_OS),
-            'Data_Conclusao_Tecnica': fmt_dt(os.Data_Enviado_Verificacao),
-            'Data_Finalizacao': fmt_dt(os.Data_Finalizacao_OS),
-            'Avanco_pct': os.Avanco_da_OS if os.Avanco_da_OS is not None else 0,
-            'Tempo_em_Execucao': format_excel_timedelta(tempo_em_execucao_td),
-            'Tempo_em_Verificacao': format_excel_timedelta(tempo_em_verificacao_td),
-            'SLA_Atendido': sla_atendido,
-            'SLA_Violado': sla_violado
+            'Tecnico Responsavel': tecnico_resp,
+            'Ativo': ativos_str,
+            'Tipo de Tarefa': tipo_tarefa,
+            'Descrição da OS': os.Observacao_OS,
+            
+            'Descrição do Tipo': types_desc_str,
+            'Descrição da Causa': causes_desc_str,
+            'Método de Detecção': detection_desc_str,
+            
+            'Data Criação': fmt_dt(os.Data_Criacao_OS),
+            'Data Início': fmt_dt(os.Data_Iniciou_OS),
+            'Data Conclusão Técnica': fmt_dt(os.Data_Enviado_Verificacao),
+            'Data Finalização': fmt_dt(os.Data_Finalizacao_OS),
+            'Avanço (%)': os.Avanco_da_OS if os.Avanco_da_OS is not None else 0,
+            'Tempo de Atendimento': format_excel_timedelta(tempo_atendimento_td),
+            'Tempo em Execução': format_excel_timedelta(tempo_em_execucao_td),
+            'Tempo em Verificação': format_excel_timedelta(tempo_em_verificacao_td),
+            'SLA Atendido': sla_atendido,
+            'SLA Violado': sla_violado
         }
         dados_para_excel.append(row)
 
     df = pd.DataFrame(dados_para_excel)
 
     colunas_finais_ordenadas = [
-        'OS',
-        'Status',
-        'Cliente',
-        'Tecnico Responsavel',
-        'Tipo de Tarefa',
-        'Data Criação',
-        'Data Início',
-        'Data Conclusão Técnica',
-        'Data Finalização',
-        'Avanço (%)',
-        'Tempo em Execução',
-        'Tempo em Verificação',
-        'SLA Atendido',
-        'SLA Violado'
+        'OS', 'Status', 'Cliente', 
+        'Tecnico Responsavel', 'Ativo', 'Tipo de Tarefa',
+        'Descrição da OS', 
+        'Descrição do Tipo', 'Descrição da Causa', 'Método de Detecção',
+        'Data Criação', 'Data Início', 'Data Conclusão Técnica', 'Data Finalização', 'Avanço (%)',
+        'Tempo de Atendimento', 'Tempo em Execução', 'Tempo em Verificação',
+        'SLA Atendido', 'SLA Violado'
     ]
     
     colunas_finais = [col for col in colunas_finais_ordenadas if col in df.columns]
-
-
-    colunas_de_data = ['Data Criação', 'Data Início', 'Data Conclusão Técnica', 'Data Finalização']
-    for col in colunas_de_data:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
-            
-            try:
-                df[col] = df[col].dt.tz_convert('America/Sao_Paulo')
-            except Exception:
-                pass 
-            
-            df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    for col in ['Tempo em Execução', 'Tempo em Verificação']:
-        if col in df.columns:
-            df[col] = df[col].apply(format_excel_timedelta)
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Relatorio', columns=colunas_finais)
     
     buffer.seek(0)
-
-    response = HttpResponse(
-        buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response[
-        'Content-Disposition'] = f'attachment; filename="relatorio_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
+    response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="relatorio_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx"'
     return response
 
 def api_get_categorias_view(request):

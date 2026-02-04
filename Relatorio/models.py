@@ -3,6 +3,64 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import models
 from .mappings import get_grupo_local, get_local_detalhado, get_grupo_tecnico, get_grupo_tipo_tarefa, get_trt_specific_name
+from django.db.models import Count, F, Q, Sum, Case, When, Value, DurationField, ExpressionWrapper
+from django.db.models.functions import Coalesce, TruncMonth
+from datetime import timedelta
+
+class OrdemDeServicoQuerySet(models.QuerySet):
+    def no_periodo(self, start_date, end_date):
+        if start_date and end_date:
+            return self.filter(Data_Criacao_OS__range=(start_date, end_date))
+        return self
+
+    def ativas(self):
+        return self.exclude(Status__in=['Concluído', 'Cancelado'])
+
+    def com_tempo_execucao(self):
+        """Calcula o tempo de execução diretamente no Banco"""
+        return self.annotate(
+            tempo_execucao=ExpressionWrapper(
+                F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'),
+                output_field=DurationField()
+            )
+        )
+
+    def por_grupo_local(self):
+        """Agrupa usando o campo já calculado no save()"""
+        return self.values('Local_Agrupado').annotate(total=Count('id')).order_by('-total')
+    def anotada_com_sla(self):
+        
+        return self.com_tempo_execucao().annotate(
+            violou_sla=Case(
+                When(
+                    Q(Local_Agrupado='Gerdau') & 
+                    Q(tempo_execucao__gt=timedelta(hours=24)), 
+                    then=Value(True)
+                ),
+                
+                When(
+                    Q(Local_Agrupado='Park Shopping Canoas') & 
+                    Q(tempo_execucao__gt=timedelta(hours=24)),
+                    then=Value(True)
+                ),
+                default=Value(False),
+                output_field=models.BooleanField()
+            )
+        )
+
+class OrdemDeServicoManager(models.Manager):
+    def get_queryset(self):
+        return OrdemDeServicoQuerySet(self.model, using=self._db)
+
+    def metricas_gerais(self, start_date=None, end_date=None):
+        qs = self.get_queryset().no_periodo(start_date, end_date)
+        return qs.aggregate(
+            total=Count('id'),
+            concluidas=Count('id', filter=Q(Status='Concluído')),
+            canceladas=Count('id', filter=Q(Status='Cancelado')),
+            em_processo=Count('id', filter=Q(Status='Em Processo')),
+            em_verificacao=Count('id', filter=Q(Status='Em Verificação')),
+        )
 
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -57,6 +115,8 @@ class OrdemDeServico(models.Model):
     Mes_Finalizacao = models.IntegerField(blank=True, null=True)
     Dia_Finalizacao = models.IntegerField(blank=True, null=True)
     Hora_Finalizacao = models.TimeField(blank=True, null=True)
+
+    objects = OrdemDeServicoManager()
 
     def save(self, *args, **kwargs):
         if self.Local_Empresa:
@@ -115,6 +175,9 @@ class Tarefa(models.Model):
     Responsavel = models.CharField(max_length=255, blank=True, null=True, verbose_name="Responsável")
     Plano_de_Tarefas = models.TextField(blank=True, null=True, verbose_name="Plano de Tarefas")
     Tipo_de_Tarefa = models.CharField(max_length=100, blank=True, null=True, verbose_name="Tipo de Tarefa")
+    types_description = models.TextField(blank=True, null=True, verbose_name="Descrição do Tipo")
+    causes_description = models.TextField(blank=True, null=True, verbose_name="Descrição da Causa")
+    detection_method_description = models.TextField(blank=True, null=True, verbose_name="Método de Detecção")
     
     Responsavel_Agrupado = models.CharField(max_length=100, blank=True, null=True, verbose_name="Responsável (Grupo)", db_index=True)
     Tipo_Tarefa_Agrupado = models.CharField(max_length=100, blank=True, null=True, verbose_name="Tipo de Tarefa (Grupo)", db_index=True)
