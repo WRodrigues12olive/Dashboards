@@ -208,6 +208,9 @@ class Command(BaseCommand):
             'Tipo_de_Tarefa': tipo_raw,
             'Duracao_Minutos': self._segundos_para_minutos(item.get("real_duration")),
             'Status_da_Tarefa': item.get("task_status"),
+            'types_description': item.get("types_description"),
+            'causes_description': item.get("causes_description"),
+            'detection_method_description': item.get("detection_method_description"),
             
             # Campos Normalizados
             'Responsavel_Agrupado': get_grupo_tecnico(resp_raw),
