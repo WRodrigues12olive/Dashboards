@@ -92,12 +92,11 @@ DATABASES = {
         'HOST': 'localhost',
         'PORT': '5432',
     },
-    # ADICIONE ESTE BLOCO DO NOVO BANCO:
     'gitel_gerdau': {
-        'ENGINE': 'django.db.backends.postgresql', # Assumindo postgresql. Se for SQL Server, use 'mssql'
+        'ENGINE': 'django.db.backends.postgresql', 
         'NAME': 'gitel_gerdau',
-        'USER': 'postgres',      # Verifique se o usuário é o mesmo
-        'PASSWORD': '@PG#2024',  # Verifique a senha
+        'USER': 'postgres',      
+        'PASSWORD': '@PG#2024',  
         'HOST': 'localhost',
         'PORT': '5432',
     }
