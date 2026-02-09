@@ -364,8 +364,8 @@ MAPEAMENTO_TECNICOS = {
   "Reynaldo Conte": [
     "Reynaldo - Equipe Pinda", "Reynaldo - LiderSit", "Reynaldo Conde Gerdau Pinda", "Reynaldo Conte", "Reynaldo Supervisor", "Reynaldo. Conte", "Reynaldo/Brain LiderSit", "Reynaldo/Brian LiderSit", "Reynaldo/Luis Henrique LiderSit", "Reynaldo/Marcelo - Equipe Pinda"
   ],
-  "Ricardo/Joelson GSP": [
-    "Ricardo Sousa Gerdau GSP", "Ricardo/Joelson - Equipe GSP", "Ricardo/Tiago - Equipe GSP", "Joelson - Equipe GSP 2", "Joelson - TESTE"
+  "Joelson -": [
+    "Ricardo Sousa Gerdau GSP", "Ricardo/Joelson - Equipe GSP", "Ricardo/Tiago - Equipe GSP", "Joelson - Equipe GSP 2", "Joelson - TESTE", "Joelson -"
   ],
   "Rodrigo Ramos": [
     "Rodrigo Ramos"

@@ -7,6 +7,7 @@ from django.contrib.auth.views import LoginView, PasswordChangeView, LogoutView
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.urls import reverse_lazy
 from django.contrib import messages
+from django.utils.timezone import localtime
 from .mappings import KEYWORDS_LOCAIS, MAPEAMENTO_PLANO_TAREFAS_DETALHADO, MAPEAMENTO_TECNICOS
 from .models import OrdemDeServico, Tarefa
 from datetime import datetime, timedelta
@@ -92,7 +93,7 @@ def dashboard_eventos_gitel(request):
         startdate__lt=end_date_query
     )
 
-    # 1. KPIs
+    # KPIs
     count_green = qs.filter(color='Green').count()
     count_red = qs.filter(color='Red').count()
     
@@ -100,7 +101,7 @@ def dashboard_eventos_gitel(request):
     total_red_exibido = count_red
     total_geral = qs.count()
 
-    # 2. GRÁFICO 1: STATUS POR CÂMERA
+    # GRÁFICO 1: STATUS POR CÂMERA
     por_camera = qs.values('cameras').annotate(
         ok=Count('pk', filter=Q(color='Green')),
         nok=Count('pk', filter=Q(color='Red')),
@@ -121,7 +122,7 @@ def dashboard_eventos_gitel(request):
         data_camera_green.append(real_g)
         data_camera_red.append(r)
 
-    # 3. GRÁFICO 2 EVOLUÇÃO DIÁRIA
+    # GRÁFICO 2 EVOLUÇÃO DIÁRIA
     por_dia = qs.annotate(data=TruncDate('startdate')).values('data').annotate(
         ok=Count('pk', filter=Q(color='Green')),
         nok=Count('pk', filter=Q(color='Red'))
@@ -162,26 +163,21 @@ def dashboard_eventos_gitel(request):
             except Exception:
                 continue
 
-    # Calcular totais reais para ordenação E FILTRAGEM
-    cameras_validas = [] # Lista para guardar só quem tem evento > 0
+    cameras_validas = [] 
 
     for cam, siglas in dados_risco.items():
         soma_real_camera = 0
         for sigla in siglas_validas:
             g = siglas[sigla]['Green']
             r = siglas[sigla]['Red']
-            # Calcula o valor real desta sigla
             valor_real = max(0, g - r)
             soma_real_camera += valor_real
         
-        # Guardamos o total para ordenar depois
         total_por_camera[cam] = soma_real_camera
 
-        # Só adicionamos na lista de "Câmeras Válidas" se o total real for maior que 0
         if soma_real_camera > 0:
             cameras_validas.append(cam)
 
-    # Ordena APENAS as câmeras válidas (que têm eventos > 0)
     cameras_ordenadas_risco = sorted(cameras_validas, key=lambda k: total_por_camera[k], reverse=True)
 
     risco_labels = cameras_ordenadas_risco
@@ -193,7 +189,6 @@ def dashboard_eventos_gitel(request):
     data_epi = []
 
     for cam in cameras_ordenadas_risco:
-        # Para cada câmera válida, calcula os valores finais
         data_ar.append(max(0, dados_risco[cam]['AR']['Green'] - dados_risco[cam]['AR']['Red']))
         data_hc.append(max(0, dados_risco[cam]['HC']['Green'] - dados_risco[cam]['HC']['Red']))
         data_ff.append(max(0, dados_risco[cam]['FF']['Green'] - dados_risco[cam]['FF']['Red']))
@@ -460,7 +455,6 @@ def Overview_view(request):
             })
         data_resumo.sort(key=lambda item: item['cliente'])
     else:
-        # mantém o data_resumo já gerado pela lógica anterior (agregado)
         expanded_cliente = None
 
     # Exceção Hospital de Clínicas Busca Por Ativo e Local
@@ -752,6 +746,18 @@ def dashboard_view(request):
         com_ticket=Count('id', filter=Q(Possui_Ticket='Sim')),
         sem_ticket=Count('id', filter=Q(Possui_Ticket='Não')),
     )
+    # Percentuais
+    total_os = metrics['total'] or 0
+    
+    def calc_pct(val):
+        if total_os == 0: return "0,00"
+        pct = (val / total_os) * 100
+        return f"{pct:.2f}".replace('.', ',')
+
+    pct_concluidas = calc_pct(metrics['concluidas'])
+    pct_processo = calc_pct(metrics['em_processo'])
+    pct_verificacao = calc_pct(metrics['em_verificacao'])
+    pct_canceladas = calc_pct(metrics['canceladas'])
 
     # 5. Gráficos Principais 
     os_por_status = qs.values('Status').annotate(total=Count('id')).order_by('-total')
@@ -762,14 +768,20 @@ def dashboard_view(request):
     local_agrupado_labels = [item['Local_Agrupado'] for item in os_por_local if item['Local_Agrupado']]
     local_agrupado_data = [item['total'] for item in os_por_local if item['Local_Agrupado']]
 
-    # Drilldown Gerdau
+    # Drilldown: Gerdau
     os_gerdau = qs.filter(Local_Agrupado='Gerdau').values('Local_Detalhado').annotate(total=Count('id')).order_by('-total')
     gerdau_labels = [item['Local_Detalhado'] for item in os_gerdau]
     gerdau_data = [item['total'] for item in os_gerdau]
 
+    # Drilldown: Outros Locais
+    os_outros_locais = qs.filter(Local_Agrupado='Outros').values('Local_Empresa').annotate(total=Count('id')).order_by('-total')
+    outros_locais_labels = [item['Local_Empresa'] or 'Não Informado' for item in os_outros_locais]
+    outros_locais_data = [item['total'] for item in os_outros_locais]
+
     # 6. Tarefas e Técnicos
     tarefas_qs = Tarefa.objects.filter(ordem_de_servico__in=qs)
     
+    # Tarefas por Tipo
     por_tipo_tarefa = tarefas_qs.values('Tipo_Tarefa_Agrupado').annotate(
         total=Count('ordem_de_servico', distinct=True)
     ).order_by('-total')
@@ -777,12 +789,29 @@ def dashboard_view(request):
     tipo_tarefa_grupo_labels = [t['Tipo_Tarefa_Agrupado'] for t in por_tipo_tarefa if t['Tipo_Tarefa_Agrupado']]
     tipo_tarefa_grupo_data = [t['total'] for t in por_tipo_tarefa if t['Tipo_Tarefa_Agrupado']]
 
+    # Drilldown: Tipos de Tarefa Outros
+    tipos_outros_qs = tarefas_qs.filter(Tipo_Tarefa_Agrupado='Outros').values('Tipo_de_Tarefa').annotate(
+        total=Count('ordem_de_servico', distinct=True)
+    ).order_by('-total')
+    tipo_tarefa_outros_labels = [t['Tipo_de_Tarefa'] for t in tipos_outros_qs if t['Tipo_de_Tarefa']]
+    tipo_tarefa_outros_data = [t['total'] for t in tipos_outros_qs if t['Tipo_de_Tarefa']]
+
+    # Tarefas por Técnico
     por_tecnico = tarefas_qs.values('Responsavel_Agrupado').annotate(
         total=Count('ordem_de_servico', distinct=True)
     ).order_by('-total')
     
     tecnico_grupo_labels = [t['Responsavel_Agrupado'] for t in por_tecnico if t['Responsavel_Agrupado']]
     tecnico_grupo_data = [t['total'] for t in por_tecnico if t['Responsavel_Agrupado']]
+
+    # Drilldown: Técnicos Outros
+    tecnicos_outros_qs = tarefas_qs.filter(Responsavel_Agrupado='Outros').values('Responsavel').annotate(
+        total=Count('ordem_de_servico', distinct=True)
+    ).order_by('-total')
+    
+    tecnico_outros_labels = [t['Responsavel'] for t in tecnicos_outros_qs if t['Responsavel']]
+    tecnico_outros_data = [t['total'] for t in tecnicos_outros_qs if t['Responsavel']]
+
 
     os_por_mes_qs = (
         qs.annotate(mes=TruncMonth('Data_Criacao_OS'))
@@ -861,6 +890,11 @@ def dashboard_view(request):
         'os_em_processo': metrics['em_processo'],
         'os_em_verificacao': metrics['em_verificacao'],
         'os_canceladas': metrics['canceladas'],
+
+        'pct_concluidas': pct_concluidas,
+        'pct_processo': pct_processo,
+        'pct_verificacao': pct_verificacao,
+        'pct_canceladas': pct_canceladas,
         
         'status_labels': [item['Status'] for item in os_por_status],
         'status_data': [item['total'] for item in os_por_status],
@@ -876,12 +910,18 @@ def dashboard_view(request):
         
         'gerdau_labels': gerdau_labels,
         'gerdau_data': gerdau_data,
+        'outros_locais_labels': outros_locais_labels,
+        'outros_locais_data': outros_locais_data,
         
         'tecnico_grupo_labels': tecnico_grupo_labels,
         'tecnico_grupo_data': tecnico_grupo_data,
+        'tecnico_outros_labels': tecnico_outros_labels,
+        'tecnico_outros_data': tecnico_outros_data,
         
         'tipo_tarefa_grupo_labels': tipo_tarefa_grupo_labels,
         'tipo_tarefa_grupo_data': tipo_tarefa_grupo_data,
+        'tipo_tarefa_outros_labels': tipo_tarefa_outros_labels,
+        'tipo_tarefa_outros_data': tipo_tarefa_outros_data,
 
         'mes_labels': mes_labels,
         'mes_data': mes_data,
@@ -914,18 +954,43 @@ def dashboard_view(request):
 
 def sla_violado_view(request, grupo_sla):
     grupo_sla = grupo_sla.upper()
-    sla_map = {'C0': {'hours': 3, 'code': '(C0)'}, 'C1': {'hours': 12, 'code': '(C1)'},
-               'C2': {'hours': 24, 'code': '(C2)'}, }
+    sla_map = {
+        'C0': {'hours': 3, 'code': '(C0)'}, 
+        'C1': {'hours': 12, 'code': '(C1)'},
+        'C2': {'hours': 24, 'code': '(C2)'}, 
+    }
+    
     if grupo_sla not in sla_map:
         return render(request, 'Relatorio/sla_violado.html', {'error': 'Grupo de SLA inválido.'})
+    
     sla_info = sla_map[grupo_sla]
+    
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    # Query Base
+    os_violadas = OrdemDeServico.objects.filter(
+        Local_Empresa__icontains='gerdau', 
+        tarefas__Ativo__icontains=sla_info['code'],
+        Data_Criacao_OS__isnull=False, 
+        Data_Iniciou_OS__isnull=False
+    ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva')
+
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            os_violadas = os_violadas.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
+        except ValueError:
+            pass
+
     os_violadas = (
-        OrdemDeServico.objects.filter(
-            Local_Empresa__icontains='gerdau', tarefas__Ativo__icontains=sla_info['code'],
-            Data_Criacao_OS__isnull=False, Data_Iniciou_OS__isnull=False
-        ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva').distinct().annotate(
-            tempo_decorrido=F('Data_Iniciou_OS') - F('Data_Criacao_OS')).filter(
-            tempo_decorrido__gt=timedelta(hours=sla_info['hours'])).order_by('-Data_Criacao_OS'))
+        os_violadas.distinct()
+        .annotate(tempo_decorrido=F('Data_Iniciou_OS') - F('Data_Criacao_OS'))
+        .filter(tempo_decorrido__gt=timedelta(hours=sla_info['hours']))
+        .order_by('-Data_Criacao_OS')
+    )
+    
     context = {'os_violadas': os_violadas, 'grupo_sla': grupo_sla, 'sla_hours': sla_info['hours'], 'tipo_sla': 'Atendimento'}
     return render(request, 'Relatorio/sla_violado.html', context)
 
@@ -937,44 +1002,73 @@ def sla_resolucao_violado_view(request, grupo_sla):
         'C1': {'hours': 24, 'code': '(C1)'},
         'C2': {'hours': 48, 'code': '(C2)'},
     }
+    
     if grupo_sla not in sla_map:
         return render(request, 'Relatorio/sla_violado.html', {'error': 'Grupo de SLA inválido.'})
     
     sla_info = sla_map[grupo_sla]
+
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    # Query Base
+    os_violadas = OrdemDeServico.objects.filter(
+        Local_Empresa__icontains='gerdau', 
+        tarefas__Ativo__icontains=sla_info['code'],
+        Data_Criacao_OS__isnull=False, 
+        Data_Enviado_Verificacao__isnull=False
+    ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva')
+
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            os_violadas = os_violadas.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
+        except ValueError:
+            pass
+
     os_violadas = (
-        OrdemDeServico.objects.filter(
-            Local_Empresa__icontains='gerdau', 
-            tarefas__Ativo__icontains=sla_info['code'],
-            Data_Criacao_OS__isnull=False, 
-            Data_Enviado_Verificacao__isnull=False
-        ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva').distinct().annotate(
-            tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS')
-        ).filter(
-            tempo_decorrido__gt=timedelta(hours=sla_info['hours'])
-        ).order_by('-Data_Criacao_OS')
+        os_violadas.distinct()
+        .annotate(tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'))
+        .filter(tempo_decorrido__gt=timedelta(hours=sla_info['hours']))
+        .order_by('-Data_Criacao_OS')
     )
-    context = {
-        'os_violadas': os_violadas, 
-        'grupo_sla': grupo_sla, 
-        'sla_hours': sla_info['hours'],
-        'tipo_sla': 'Resolução'
-    }
+    
+    context = {'os_violadas': os_violadas, 'grupo_sla': grupo_sla, 'sla_hours': sla_info['hours'], 'tipo_sla': 'Resolução'}
     return render(request, 'Relatorio/sla_violado.html', context)
 
 
 def sla_parkshopping_violado_view(request):
     sla_hours = 24
-    os_violadas = (
-        OrdemDeServico.objects.filter(
-            Local_Empresa__icontains='PARK SHOPPING CANOAS',
-            Data_Criacao_OS__isnull=False, 
-            Data_Enviado_Verificacao__isnull=False
-        ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva').distinct().annotate(
-            tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS')
-        ).filter(
-            tempo_decorrido__gt=timedelta(hours=sla_hours)
-        ).order_by('-Data_Criacao_OS')
-    )
+    
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+    
+    # QueryBase
+    os_violadas = OrdemDeServico.objects.filter(
+        Local_Empresa__icontains='PARK SHOPPING CANOAS',
+        Data_Criacao_OS__isnull=False, 
+        Data_Enviado_Verificacao__isnull=False
+    ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva')
+
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            
+            os_violadas = os_violadas.filter(
+                Data_Criacao_OS__gte=start_date,
+                Data_Criacao_OS__lte=end_date
+            )
+        except ValueError:
+            pass 
+
+    os_violadas = os_violadas.distinct().annotate(
+        tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS')
+    ).filter(
+        tempo_decorrido__gt=timedelta(hours=sla_hours)
+    ).order_by('-Data_Criacao_OS')
+
     context = {
         'os_violadas': os_violadas, 
         'sla_hours': sla_hours,
@@ -984,28 +1078,40 @@ def sla_parkshopping_violado_view(request):
 
 def sla_cpfl_violado_view(request):
     sla_hours = 72
+    
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    # Query Base
+    os_violadas = OrdemDeServico.objects.filter(
+        Local_Empresa__icontains='CPFL',
+        Data_Criacao_OS__isnull=False,
+        Data_Enviado_Verificacao__isnull=False
+    ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva')
+
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            os_violadas = os_violadas.filter(Data_Criacao_OS__gte=start_date, Data_Criacao_OS__lte=end_date)
+        except ValueError:
+            pass
+
     os_violadas = (
-        OrdemDeServico.objects.filter(
-            Local_Empresa__icontains='CPFL',
-            Data_Criacao_OS__isnull=False,
-            Data_Enviado_Verificacao__isnull=False
-        ).exclude(tarefas__Tipo_de_Tarefa__icontains='Preventiva').distinct().annotate(
-            tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS')
-        ).filter(
-            tempo_decorrido__gt=timedelta(hours=sla_hours)
-        ).order_by('-Data_Criacao_OS')
+        os_violadas.distinct()
+        .annotate(tempo_decorrido=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'))
+        .filter(tempo_decorrido__gt=timedelta(hours=sla_hours))
+        .order_by('-Data_Criacao_OS')
     )
-    context = {
-        'os_violadas': os_violadas,
-        'sla_hours': sla_hours,
-        'tipo_sla': 'Resolução'
-    }
+
+    context = {'os_violadas': os_violadas, 'sla_hours': sla_hours, 'tipo_sla': 'Resolução'}
     return render(request, 'Relatorio/sla_violado.html', context)
 
 
-def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str):
+def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str, filtro_local_extra=None):
     base_queryset = OrdemDeServico.objects.all()
 
+    # 1. Filtro de Data
     if start_date_str and end_date_str:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
@@ -1014,12 +1120,22 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
         except (ValueError, TypeError):
             pass
 
+    # Filtro de Local EXTRA (Só afeta o Modal do Dashboard)
+    if filtro_local_extra and filtro_local_extra != 'Todos':
+        if filtro_local_extra == 'Gerdau Outros':
+             base_queryset = base_queryset.filter(Local_Agrupado='Gerdau', Local_Detalhado='Gerdau Outros')
+        else:
+             base_queryset = base_queryset.filter(Local_Agrupado=filtro_local_extra)
+
+    # Anotações de Tempo 
     base_queryset = base_queryset.annotate(
         tempo_em_execucao=F('Data_Enviado_Verificacao') - F('Data_Criacao_OS'),
         tempo_em_verificacao=F('Data_Finalizacao_OS') - F('Data_Enviado_Verificacao')
     )
 
+    # Filtros Específicos da Extração 
     if categoria and categoria != 'todas':
+        
         if tipo_relatorio == 'status':
             base_queryset = base_queryset.filter(Status=categoria)
             if categoria == 'Em Processo':
@@ -1038,18 +1154,15 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
         elif tipo_relatorio == 'ticket':
             base_queryset = base_queryset.filter(Possui_Ticket=categoria)
 
-
         elif tipo_relatorio == 'tipo_tarefa_agrupados':
             tarefas_no_periodo = Tarefa.objects.filter(
                 ordem_de_servico__in=base_queryset
             ).exclude(Tipo_de_Tarefa__isnull=True).exclude(Tipo_de_Tarefa__exact='')
 
             ids_os_para_filtrar = set()
-
             for tarefa in tarefas_no_periodo:
                 if get_grupo_tipo_tarefa(tarefa.Tipo_de_Tarefa) == categoria:
                     ids_os_para_filtrar.add(tarefa.ordem_de_servico_id)
-
             base_queryset = base_queryset.filter(id__in=list(ids_os_para_filtrar))
 
         elif tipo_relatorio == 'execucao':
@@ -1057,10 +1170,13 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
             ids_com_tarefa_in_progress = set(Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='IN_PROGRESS').values_list('ordem_de_servico_id', flat=True))
             ids_com_avanco_e_processo = set(os_ativas.filter(Status='Em Processo', Avanco_da_OS__gt=0).values_list('id', flat=True))
             em_andamento_ids = ids_com_tarefa_in_progress.union(ids_com_avanco_e_processo)
+            
             candidatas_pausadas_ids = set(Tarefa.objects.filter(ordem_de_servico__in=os_ativas, Status_da_Tarefa='PAUSED').values_list('ordem_de_servico_id', flat=True))
             ids_em_verificacao = set(os_ativas.filter(Status='Em Verificação').values_list('id', flat=True))
+            
             pausadas_ids = candidatas_pausadas_ids - em_andamento_ids - ids_em_verificacao
             ids_ja_classificadas = em_andamento_ids.union(pausadas_ids)
+            
             candidatas_restantes = os_ativas.exclude(id__in=ids_ja_classificadas)
             nao_iniciadas_ids = set(candidatas_restantes.filter(Q(Avanco_da_OS=0) | Q(Avanco_da_OS__isnull=True), Status='Em Processo').values_list('id', flat=True))
 
@@ -1071,28 +1187,30 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
         elif tipo_relatorio == 'locais_agrupados':
             todos_locais = sorted([kw.title() for kw in KEYWORDS_LOCAIS])
             gerdau_especificos = [l for l in todos_locais if l.upper().startswith('GERDAU')]
-            outros_locais = [l for l in todos_locais if not l.upper().startswith('GERDAU')]
+            
             base_queryset = base_queryset.filter(
                 Q(Local_Empresa__icontains='gerdau') |
                 Q(Local_Empresa__in=gerdau_especificos) |
-                Q(Local_Empresa__isnull=True)
+                Q(Local_Empresa__isnull=True) |
+                Q(Local_Empresa__isnull=False) 
             )
+            
             cat_norm = (categoria or '').strip()
-            # Agregado: todas ocorrências que contenham 'gerdau'
+            
             if cat_norm.lower() == 'gerdau':
                 base_queryset = base_queryset.filter(Local_Empresa__icontains='gerdau')
-
+            
             elif cat_norm.lower() == 'gerdau outros':
                 qs = base_queryset.filter(Local_Empresa__icontains='gerdau')
                 for kw in KEYWORDS_LOCAIS:
                     if kw.upper().startswith('GERDAU'):
                         qs = qs.exclude(Local_Empresa__icontains=kw)
                 base_queryset = qs
-            # subsite específico 
+                
             elif any(cat_norm.lower() == kw.title().lower() for kw in KEYWORDS_LOCAIS):
-                base_queryset = base_queryset.filter(Local_Empresa__icontains=cat_norm)
+                 base_queryset = base_queryset.filter(Local_Empresa__icontains=cat_norm)
+            
             else:
-                # comportamento original: agrupa por get_grupo_local
                 ids_para_filtrar = [
                     os['id']
                     for os in base_queryset.exclude(Local_Empresa__isnull=True).values('id', 'Local_Empresa')
@@ -1106,13 +1224,11 @@ def _get_dados_filtrados(tipo_relatorio, categoria, start_date_str, end_date_str
             ).exclude(Responsavel__isnull=True).exclude(Responsavel__exact='')
 
             ids_os_para_filtrar = set()
-
             for tarefa in tarefas_no_periodo:
                 if get_grupo_tecnico(tarefa.Responsavel) == categoria:
                     ids_os_para_filtrar.add(tarefa.ordem_de_servico_id)
 
             base_queryset = base_queryset.filter(id__in=list(ids_os_para_filtrar))
-
 
     return base_queryset.order_by('-Data_Criacao_OS')
 
@@ -1142,7 +1258,7 @@ def resultado_view(request):
 
     def fmt_dt(dt):
         try:
-            return dt.strftime('%d/%m/%Y %H:%M:%S') if dt else ''
+            return localtime(dt).strftime('%d/%m/%Y %H:%M:%S') if dt else ''
         except Exception:
             return str(dt) if dt else ''
 
@@ -1247,7 +1363,7 @@ def resultado_view(request):
 
         try:
             for tarefa in os.tarefas.all():
-                # Coleta dados acumulativos (Técnicos, Tipos, Ativos)
+                # Coleta dados acumulativos
                 if tarefa.Responsavel:
                     tecnicos_set.add(get_grupo_tecnico(tarefa.Responsavel))
                 if tarefa.Tipo_de_Tarefa:
@@ -1335,8 +1451,10 @@ def gerar_excel_view(request):
         return HttpResponse("Não foram encontrados dados para os filtros e datas selecionados.")
 
     def fmt_dt(dt):
-        try: return dt.strftime('%d/%m/%Y %H:%M:%S') if dt else ''
-        except Exception: return str(dt) if dt else ''
+        try: 
+            return localtime(dt).strftime('%d/%m/%Y %H:%M:%S') if dt else ''
+        except Exception: 
+            return str(dt) if dt else ''
 
     dados_para_excel = []
 
@@ -1372,7 +1490,7 @@ def gerar_excel_view(request):
                 if tarefa.Ativo:
                     ativos_set.add(tarefa.Ativo)
                 
-                # LÓGICA DA PRIMEIRA DESCRIÇÃO 
+                # LÓGICA DA DESCRIÇÃO 
                 if not types_desc_str and tarefa.types_description: 
                     types_desc_str = tarefa.types_description.strip()
                 
@@ -1515,3 +1633,66 @@ def api_get_categorias_view(request):
             categorias.append('Não Mapeado')
 
     return JsonResponse({'categorias': categorias})
+
+def api_detalhes_tecnico(request):
+    tecnico = request.GET.get('tecnico')
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    local_grupo = request.GET.get('local_grupo')
+
+    dados_qs = _get_dados_filtrados(
+            'tecnico_agrupados', 
+            tecnico, 
+            start_date, 
+            end_date, 
+            filtro_local_extra=local_grupo
+        ).prefetch_related('tarefas')
+    
+    def fmt_dt(dt):
+        return localtime(dt).strftime('%d/%m/%Y %H:%M') if dt else ''
+
+    def fmt_td(td):
+        if not td or not isinstance(td, timedelta): return ''
+        total_seconds = int(td.total_seconds())
+        days, remainder = divmod(total_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if days > 0: return f'{days}d {hours:02}:{minutes:02}'
+        return f'{hours:02}:{minutes:02}'
+
+    resultados = []
+    
+    for os in dados_qs:
+        #  LÓGICA DE DADOS 
+        cliente_grupo = get_grupo_local(os.Local_Empresa)
+        if cliente_grupo.upper() == 'HOSPITAL DE CLINICAS': cliente_grupo = 'Hospital De Clinicas'
+        
+        tecnicos_set = set()
+        ativos_set = set()
+        tipos_tarefa_set = set()
+        
+        for t in os.tarefas.all():
+            if t.Responsavel: tecnicos_set.add(t.Responsavel) 
+            if t.Ativo: ativos_set.add(t.Ativo)
+            if t.Tipo_de_Tarefa: tipos_tarefa_set.add(t.Tipo_de_Tarefa)
+
+        # Cálculos de tempo básicos
+        tempo_atendimento = fmt_td(os.Data_Iniciou_OS - os.Data_Criacao_OS) if (os.Data_Iniciou_OS and os.Data_Criacao_OS) else ''
+        tempo_resolucao = fmt_td(os.Data_Enviado_Verificacao - os.Data_Criacao_OS) if (os.Data_Enviado_Verificacao and os.Data_Criacao_OS) else ''
+
+        resultados.append({
+            'os': os.OS,
+            'status': os.Status,
+            'cliente': cliente_grupo,
+            'tecnicos': ", ".join(tecnicos_set),
+            'ativo': " | ".join(ativos_set),
+            'tipo_tarefa': ", ".join(tipos_tarefa_set),
+            'descricao': os.Observacao_OS or "",
+            'data_criacao': fmt_dt(os.Data_Criacao_OS),
+            'data_inicio': fmt_dt(os.Data_Iniciou_OS),
+            'data_fim': fmt_dt(os.Data_Enviado_Verificacao),
+            'tempo_atendimento': tempo_atendimento,
+            'tempo_resolucao': tempo_resolucao
+        })
+
+    return JsonResponse({'dados': resultados})
