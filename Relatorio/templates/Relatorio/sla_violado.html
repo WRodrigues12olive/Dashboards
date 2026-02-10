@@ -13,7 +13,7 @@
                 <h1>OS com SLA de {{ tipo_sla }} Violado</h1>
                 <p class="lead">Mostrando OS do grupo <strong>{{ grupo_sla }}</strong> com tempo de {{ tipo_sla|lower }} maior que <strong>{{ sla_hours }} horas</strong>.</p>
             </div>
-            <a href="{% url 'dashboard' %}" class="btn btn-secondary">Voltar ao Dashboard</a>
+            <a href="{% url 'dashboard' %}?{{ request.GET.urlencode }}" class="btn btn-secondary">Voltar ao Dashboard</a>
         </div>
 
         {% if error %}

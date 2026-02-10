@@ -1,141 +1,47 @@
 <!DOCTYPE html>
-{% load format_helpers %} <html lang="pt-br">
+{% load format_helpers %}
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard de Relatórios</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <style>
         /* GERAL */
-        body {
-            background-color: #f3f6fa;
-            font-family: "Segoe UI", Roboto, sans-serif;
-            color: #333;
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-            font-weight: 600;
-            color: #004aad;
-        }
+        body { background-color: #f3f6fa; font-family: "Segoe UI", Roboto, sans-serif; color: #333; }
+        h1, h2, h3, h4, h5, h6 { font-weight: 600; color: #004aad; }
 
         /* CARDS */
-        .card {
-            border: none;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            background: #ffffff;
-            transition: all 0.2s ease-in-out;
-            height: 100%;
-        }
+        .card { border: none; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #ffffff; transition: all 0.2s ease-in-out; height: 100%; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .card-header { background-color: transparent; border-bottom: 1px solid #f0f0f0; padding: 1rem 1.25rem; font-weight: 600; color: #004aad; font-size: 1.1rem; }
+        .card-body { padding: 1.5rem; }
 
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-
-        .card-header {
-            background-color: transparent;
-            border-bottom: 1px solid #f0f0f0;
-            padding: 1rem 1.25rem;
-            font-weight: 600;
-            color: #004aad;
-            font-size: 1.1rem;
-        }
-
-        .card-body {
-            padding: 1.5rem;
-        }
-
-        /* KPI CARDS (TOPO)*/
-        .kpi-card {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            border-left: 5px solid #ccc; 
-        }
-        
-        .kpi-label {
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #6c757d;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }
-
-        .kpi-value {
-            font-size: 2.2rem;
-            font-weight: 700;
-            color: #212529;
-            margin-bottom: 0;
-            line-height: 1;
-        }
-
-        /* Cores das bordas dos KPIs */
+        /* KPI CARDS */
+        .kpi-card { display: flex; flex-direction: column; justify-content: center; border-left: 5px solid #ccc; }
+        .kpi-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; margin-bottom: 0.5rem; font-weight: 600; }
+        .kpi-value { font-size: 2.2rem; font-weight: 700; color: #212529; margin-bottom: 0; line-height: 1; }
         .kpi-primary { border-left-color: #198754; }
         .kpi-info { border-left-color: #0dcaf0; }
         .kpi-warning { border-left-color: #fd7e14; }
         .kpi-success { border-left-color: #004aad; }
         .kpi-danger { border-left-color: #dc3545; }
 
-        /* FILTROS  */
-        .filter-container {
-            background: #ffffff;
-            border-radius: 10px;
-            padding: 1rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            margin-bottom: 2rem;
-        }
+        /* FILTROS */
+        .filter-container { background: #ffffff; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 2rem; }
+        .form-label { font-size: 0.85rem; font-weight: 600; color: #004aad; margin-bottom: 0.2rem; }
+        .btn-primary { background-color: #004aad; border-color: #004aad; }
+        .btn-primary:hover, .btn-overview:hover { background-color: #003380; border-color: #003380; color: #fff; }
+        .btn-overview { background-color: #004aad; color: #fff; }
+        .btn-outline-primary { color: #004aad; border-color: #004aad; }
+        .btn-outline-primary:hover { background-color: #004aad; color: #fff; }
 
-        .form-label {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #004aad;
-            margin-bottom: 0.2rem;
-        }
-
-        .btn-primary {
-            background-color: #004aad;
-            border-color: #004aad;
-        }
-        .btn-overview:hover {
-            background-color: #003580; /* tom mais escuro no hover */
-            color: #fff;
-        }
-
-        .btn-overview {
-            background-color: #004aad;
-            color: #fff;
-        }
-        
-        .btn-primary:hover {
-            background-color: #003380;
-            border-color: #003380;
-        }
-
-        .btn-outline-primary {
-            color: #004aad;
-            border-color: #004aad;
-        }
-
-        .btn-outline-primary:hover {
-            background-color: #004aad;
-            color: #fff;
-        }
-
-        /*  GRÁFICOS  */
-        .chart-container {
-            position: relative;
-            width: 100%;
-            overflow: hidden; 
-        }
-        
+        /* GRÁFICOS */
+        .chart-container { position: relative; width: 100%; overflow: hidden; }
         .chart-container-tall { height: 400px; }
         .chart-container-extra-tall { height: 700px; }
-
-        /*  UTILS  */
-        .text-blue { color: #004aad; }
-        .bg-light-blue { background-color: #e9f1ff; }
+        canvas { cursor: pointer; }
     </style>
 </head>
 <body>
@@ -147,25 +53,17 @@
                 <small class="text-muted">Visão geral e métricas de desempenho</small>
             </div>
             <div class="d-flex align-items-center gap-2" style="margin-top: -0.25rem;">
-                <span class="text-muted small">
-                    <i class="bi bi-person-circle"></i> {{ request.user.username|title }}
-                </span>
+                <span class="text-muted small"><i class="bi bi-person-circle"></i> {{ request.user.username|title }}</span>
                 <form action="{% url 'logout' %}" method="post" class="d-inline">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-outline-danger btn-sm" title="Sair do Sistema">
-                        Logout
-                    </button>
+                    <button type="submit" class="btn btn-outline-danger btn-sm" title="Sair do Sistema">Logout</button>
                 </form>
             </div>
         </div>
 
         <div class="d-flex justify-content-end gap-2 mb-3" style="margin-top: -2rem;">
-            <a href="{% url 'extracao_relatorios' %}" class="btn btn-success shadow-sm btn-sm">
-                <i class="bi bi-file-earmark-excel"></i> Extrair Relatórios
-            </a>
-            <a href="{% url 'Overview' %}" class="btn btn-success shadow-sm btn-overview btn-sm">
-                <i></i> Overview
-            </a>
+            <a href="{% url 'extracao_relatorios' %}" class="btn btn-success shadow-sm btn-sm"><i class="bi bi-file-earmark-excel"></i> Extrair Relatórios</a>
+            <a href="{% url 'Overview' %}" class="btn btn-success shadow-sm btn-overview btn-sm">Overview</a>
         </div>
 
         <div class="filter-container">
@@ -194,164 +92,46 @@
         </div>
 
         <div class="row row-cols-1 row-cols-md-3 row-cols-xl-5 g-4 mb-4">
-            <div class="col">
-                <div class="card kpi-card kpi-primary h-100">
-                    <div class="card-body">
-                        <div class="kpi-label">{% if start_date or selected_local != 'Todos' %} OS no Período {% else %} Total de OS {% endif %}</div>
-                        <h2 class="kpi-value">{{ os_abertas_no_periodo }}</h2>
-                    </div>
-                </div>
-            </div>
-            <div class="col">
-                <div class="card kpi-card kpi-info h-100">
-                    <div class="card-body">
-                        <div class="kpi-label">OS Em Processo</div>
-                        <h2 class="kpi-value">{{ os_em_processo }}</h2>
-                    </div>
-                </div>
-            </div>
-            <div class="col">
-                <div class="card kpi-card kpi-warning h-100">
-                    <div class="card-body">
-                        <div class="kpi-label">OS Em Verificação</div>
-                        <h2 class="kpi-value">{{ os_em_verificacao }}</h2>
-                    </div>
-                </div>
-            </div>
-            <div class="col">
-                <div class="card kpi-card kpi-success h-100">
-                    <div class="card-body">
-                        <div class="kpi-label">OS Concluídas</div>
-                        <h2 class="kpi-value">{{ os_concluidas }}</h2>
-                    </div>
-                </div>
-            </div>
-            <div class="col">
-                <div class="card kpi-card kpi-danger h-100">
-                    <div class="card-body">
-                        <div class="kpi-label">OS Canceladas</div>
-                        <h2 class="kpi-value">{{ os_canceladas }}</h2>
-                    </div>
-                </div>
-            </div>
+            <div class="col"><div class="card kpi-card kpi-primary h-100"><div class="card-body"><div class="kpi-label">{% if start_date or selected_local != 'Todos' %} OS no Período {% else %} Total de OS {% endif %}</div><h2 class="kpi-value">{{ os_abertas_no_periodo }}</h2></div></div></div>
+            <div class="col"><div class="card kpi-card kpi-info h-100"><div class="card-body"><div class="kpi-label">OS Em Processo</div><h2 class="kpi-value">{{ os_em_processo }}</h2><small class="text-muted fw-bold" style="font-size: 0.9rem;">{{ pct_processo }}%</small></div></div></div>
+            <div class="col"><div class="card kpi-card kpi-warning h-100"><div class="card-body"><div class="kpi-label">OS Em Verificação</div><h2 class="kpi-value">{{ os_em_verificacao }}</h2><small class="text-muted fw-bold" style="font-size: 0.9rem;">{{ pct_verificacao }}%</small></div></div></div>
+            <div class="col"><div class="card kpi-card kpi-success h-100"><div class="card-body"><div class="kpi-label">OS Concluídas</div><h2 class="kpi-value">{{ os_concluidas }}</h2><small class="text-muted fw-bold" style="font-size: 0.9rem;">{{ pct_concluidas }}%</small></div></div></div>
+            <div class="col"><div class="card kpi-card kpi-danger h-100"><div class="card-body"><div class="kpi-label">OS Canceladas</div><h2 class="kpi-value">{{ os_canceladas }}</h2><small class="text-muted fw-bold" style="font-size: 0.9rem;">{{ pct_canceladas }}%</small></div></div></div>
         </div>
 
         <div class="row g-4 mb-4">
-            <div class="col-xl-6">
-                <div class="card h-100">
-                    <div class="card-header">Ordens de Serviço por Status</div>
-                    <div class="card-body">
-                        <div class="chart-container chart-container-tall">
-                            <canvas id="osPorStatusChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-6">
-                <div class="card h-100">
-                    <div class="card-header">Ordens de Serviço por Criticidade</div>
-                    <div class="card-body">
-                        <div class="chart-container chart-container-tall">
-                            <canvas id="osPorCriticidadeChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div class="col-xl-6"><div class="card h-100"><div class="card-header">Ordens de Serviço por Status</div><div class="card-body"><div class="chart-container chart-container-tall"><canvas id="osPorStatusChart"></canvas></div></div></div></div>
+            <div class="col-xl-6"><div class="card h-100"><div class="card-header">Ordens de Serviço por Criticidade</div><div class="card-body"><div class="chart-container chart-container-tall"><canvas id="osPorCriticidadeChart"></canvas></div></div></div></div>
         </div>
 
         <div class="row g-4 mb-4">
-            <div class="col-xl-4">
-                <div class="card h-100">
-                    <div class="card-header">Histórico: OS Criadas por Mês</div>
-                    <div class="card-body">
-                        <div class="chart-container chart-container-tall">
-                            <canvas id="osPorMesChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-4">
-                <div class="card h-100">
-                    <div class="card-header">Origem de OS (Via Ticket)</div>
-                    <div class="card-body">
-                        <div class="chart-container chart-container-tall">
-                            <canvas id="osPorTicketChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-xl-4">
-                <div class="card h-100">
-                    <div class="card-header">Tipos de Tarefas</div>
-                    <div class="card-body">
-                        <div class="chart-container chart-container-tall">
-                            <canvas id="TipoTarefasPorOSChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div class="col-xl-4"><div class="card h-100"><div class="card-header">Histórico: OS Criadas por Mês</div><div class="card-body"><div class="chart-container chart-container-tall"><canvas id="osPorMesChart"></canvas></div></div></div></div>
+            <div class="col-xl-4"><div class="card h-100"><div class="card-header">Origem de OS (Via Ticket)</div><div class="card-body"><div class="chart-container chart-container-tall"><canvas id="osPorTicketChart"></canvas></div></div></div></div>
+            <div class="col-xl-4"><div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><span>Tipos de Tarefas</span><div id="tipotarefa-back" style="display:none;"><button id="tipotarefa-back-btn" class="btn btn-sm btn-outline-secondary">← Voltar</button><span class="ms-2 badge bg-primary">Filtro: Outros</span></div></div><div class="card-body"><div class="chart-container chart-container-tall"><canvas id="TipoTarefasPorOSChart"></canvas></div></div></div></div>
         </div>
 
         <div class="row g-4 mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>Ocorrências por Local/Cliente (no período)</span>
-                        <div id="gerdau-back" style="display:none;">
-                            <button id="gerdau-back-btn" class="btn btn-sm btn-outline-secondary">
-                                ← Voltar para Visão Geral
-                            </button>
-                            <span class="ms-2 badge bg-primary">Filtro: Gerdau</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div id="osPorLocalChartContainer" class="chart-container chart-container-extra-tall">
-                            <canvas id="osPorLocalChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div class="col-12"><div class="card"><div class="card-header d-flex justify-content-between align-items-center"><span>Ocorrências por Local/Cliente (no período)</span><div id="local-back" style="display:none;"><button id="local-back-btn" class="btn btn-sm btn-outline-secondary">← Voltar para Visão Geral</button><span id="local-back-badge" class="ms-2 badge bg-primary"></span></div></div><div class="card-body"><div id="osPorLocalChartContainer" class="chart-container chart-container-extra-tall"><canvas id="osPorLocalChart"></canvas></div></div></div></div>
         </div>
 
         <div class="row g-4 mb-4">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header">Ordens de Serviço por Técnico (no período)</div>
-                    <div class="card-body">
-                        <div id="osPorTecnicoChartContainer" class="chart-container chart-container-extra-tall">
-                            <canvas id="osPorTecnicoChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div class="col-12"><div class="card"><div class="card-header d-flex justify-content-between align-items-center"><span>Ordens de Serviço por Técnico (no período)</span><div id="tecnico-back" style="display:none;"><button id="tecnico-back-btn" class="btn btn-sm btn-outline-secondary">← Voltar para Visão Geral</button><span class="ms-2 badge bg-primary">Filtro: Outros</span></div></div><div class="card-body"><div id="osPorTecnicoChartContainer" class="chart-container chart-container-extra-tall"><canvas id="osPorTecnicoChart"></canvas></div></div></div></div>
         </div>
 
         <div class="row g-4 mb-4">
-
-            <div class="col-12 col-lg-4">
-                <div class="card h-100">
-                    <div class="card-header fw-bold">Status de Execução</div>
-                    <div class="card-body">
-                        <div class="chart-container" style="height:270px;">
-                            <canvas id="execucaoStatusChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+            <div class="col-12 col-lg-4"><div class="card h-100"><div class="card-header fw-bold">Status de Execução</div><div class="card-body"><div class="chart-container" style="height:270px;"><canvas id="execucaoStatusChart"></canvas></div></div></div></div>
+            
             <div class="col-12 col-lg-4">
                 <div class="card h-100">
                     <div class="card-header fw-bold">SLA Atendimento (Gerdau)</div>
                     <div class="card-body d-flex flex-column">
-                        <div class="chart-container flex-grow-1" style="height:270px;">
-                            <canvas id="slaAtendimentoChart"></canvas>
-                        </div>
+                        <div class="chart-container flex-grow-1" style="height:270px;"><canvas id="slaAtendimentoChart"></canvas></div>
                         <div class="text-center mt-2">
                             <small class="fw-semibold">Ver OS não atendidas:</small><br>
                             <div class="btn-group btn-group-sm mt-1">
-                                <a href="{% url 'sla_violado_lista' 'C0' %}" class="btn btn-outline-danger">C0</a>
-                                <a href="{% url 'sla_violado_lista' 'C1' %}" class="btn btn-outline-danger">C1</a>
-                                <a href="{% url 'sla_violado_lista' 'C2' %}" class="btn btn-outline-danger">C2</a>
+                                <a href="{% url 'sla_violado_lista' 'C0' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C0</a>
+                                <a href="{% url 'sla_violado_lista' 'C1' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C1</a>
+                                <a href="{% url 'sla_violado_lista' 'C2' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C2</a>
                             </div>
                         </div>
                     </div>
@@ -362,89 +142,96 @@
                 <div class="card h-100">
                     <div class="card-header fw-bold">SLA Resolução (Gerdau)</div>
                     <div class="card-body d-flex flex-column">
-                        <div class="chart-container flex-grow-1" style="height:270px;">
-                            <canvas id="slaResolucaoChart"></canvas>
-                        </div>
+                        <div class="chart-container flex-grow-1" style="height:270px;"><canvas id="slaResolucaoChart"></canvas></div>
                         <div class="text-center mt-2">
                             <small class="fw-semibold">Ver OS não atendidas:</small><br>
                             <div class="btn-group btn-group-sm mt-1">
-                                <a href="{% url 'sla_resolucao_violado_lista' 'C0' %}" class="btn btn-outline-danger">C0</a>
-                                <a href="{% url 'sla_resolucao_violado_lista' 'C1' %}" class="btn btn-outline-danger">C1</a>
-                                <a href="{% url 'sla_resolucao_violado_lista' 'C2' %}" class="btn btn-outline-danger">C2</a>
+                                <a href="{% url 'sla_resolucao_violado_lista' 'C0' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C0</a>
+                                <a href="{% url 'sla_resolucao_violado_lista' 'C1' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C1</a>
+                                <a href="{% url 'sla_resolucao_violado_lista' 'C2' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger">C2</a>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-
-            
-            <div class="row g-4 mb-4">
-
-                <div class="col-12 col-lg-6">
-                    <div class="card h-100">
-                        <div class="card-header fw-bold">SLA Resolução (Park Shopping)</div>
-                        <div class="card-body">
-                            <div class="chart-container" style="height:270px;">
-                                <canvas id="slaParkShoppingChart"></canvas>
-                            </div>
-                            <a href="{% url 'sla_parkshopping_violado_lista' %}" class="btn btn-outline-danger mt-3 w-100">
-                                Ver Violações (24h)
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-12 col-lg-6">
-                    <div class="card h-100">
-                        <div class="card-header fw-bold">SLA Resolução (CPFL)</div>
-                        <div class="card-body">
-                            <div class="chart-container" style="height:270px;">
-                                <canvas id="slacpflChart"></canvas>
-                            </div>
-                            <a href="{% url 'sla_cpfl_violado_lista' %}" class="btn btn-outline-danger mt-3 w-100">
-                                Ver Violações (72h)
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
         </div>
 
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header bg-white d-flex align-items-center justify-content-between flex-wrap gap-2">
-                        <span>Volume de OS por Semana no Ano</span>
-                        <form method="GET" class="d-flex align-items-center gap-2">
-                            <select name="selected_year_weekly" class="form-select form-select-sm" style="width: auto;">
-                                <option value="">Selecione o ano</option>
-                                {% for ano in anos_disponiveis %}
-                                    <option value="{{ ano }}" {% if ano == selected_year_weekly %}selected{% endif %}>{{ ano }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" class="btn btn-outline-primary btn-sm">Atualizar</button>
-                        </form>
-                    </div>
+        <div class="row g-4 mb-4">
+            <div class="col-12 col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header fw-bold">SLA Resolução (Park Shopping)</div>
                     <div class="card-body">
-                         {% if selected_year_weekly %}
-                            <div class="chart-container chart-container-tall">
-                                <canvas id="weeklyOsChart"></canvas>
-                            </div>
-                         {% else %}
-                            <div class="alert alert-light text-center border" role="alert">
-                                <i class="bi bi-info-circle me-2"></i>Selecione um ano acima para visualizar o gráfico semanal.
-                            </div>
-                         {% endif %}
+                        <div class="chart-container" style="height:270px;"><canvas id="slaParkShoppingChart"></canvas></div>
+                        <a href="{% url 'sla_parkshopping_violado_lista' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger mt-3 w-100">Ver Violações (24h)</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header fw-bold">SLA Resolução (CPFL)</div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height:270px;"><canvas id="slacpflChart"></canvas></div>
+                        <a href="{% url 'sla_cpfl_violado_lista' %}?{{ request.GET.urlencode }}" class="btn btn-outline-danger mt-3 w-100">Ver Violações (72h)</a>
                     </div>
                 </div>
             </div>
         </div>
+
+        <div class="row"><div class="col-12"><div class="card"><div class="card-header bg-white d-flex align-items-center justify-content-between flex-wrap gap-2"><span>Volume de OS por Semana no Ano</span><form method="GET" class="d-flex align-items-center gap-2"><select name="selected_year_weekly" class="form-select form-select-sm" style="width: auto;"><option value="">Selecione o ano</option>{% for ano in anos_disponiveis %}<option value="{{ ano }}" {% if ano == selected_year_weekly %}selected{% endif %}>{{ ano }}</option>{% endfor %}</select><button type="submit" class="btn btn-outline-primary btn-sm">Atualizar</button></form></div><div class="card-body">{% if selected_year_weekly %}<div class="chart-container chart-container-tall"><canvas id="weeklyOsChart"></canvas></div>{% else %}<div class="alert alert-light text-center border" role="alert"><i class="bi bi-info-circle me-2"></i>Selecione um ano acima para visualizar o gráfico semanal.</div>{% endif %}</div></div></div></div>
 
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <div class="modal fade" id="tecnicoModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-person-lines-fill me-2"></i>
+                        Detalhes das OS: <span id="modalTecnicoTitulo" class="fw-bold">...</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                
+                <div class="modal-body p-0"> 
+                    <div class="table-responsive" style="max-height: 70vh;">
+                        <table class="table table-sm table-striped table-hover table-bordered mb-0" id="tabelaDetalhesTecnico">
+                            <thead class="table-light sticky-top" style="z-index: 1;">
+                                <tr>
+                                    <th style="min-width: 80px;">OS</th>
+                                    <th style="min-width: 100px;">Status</th>
+                                    <th style="min-width: 120px;">Cliente</th>
+                                    <th style="min-width: 200px;">Ativo</th>
+                                    <th style="min-width: 250px;">Descrição da OS</th>
+                                    <th style="min-width: 150px;">Técnico(s)</th>
+                                    <th style="min-width: 150px;">Tipo Tarefa</th>
+                                    <th style="min-width: 80px;">Tempo de Atendimento</th>
+                                    <th style="min-width: 80px;">Tempo de Resolução</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                </tbody>
+                        </table>
+                    </div>
+                    
+                    <div id="loadingSpinner" class="text-center py-5" style="display:none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                    <div id="msgVazio" class="text-center py-5 text-muted" style="display:none;">
+                        Nenhuma OS encontrada para este filtro.
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script> <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 
     {{ status_labels|json_script:"status_labels" }}
     {{ status_data|json_script:"status_data" }}
@@ -460,8 +247,16 @@
     {{ local_agrupado_data|json_script:"local_agrupado_data" }}
     {{ gerdau_labels|json_script:"gerdau_labels" }}
     {{ gerdau_data|json_script:"gerdau_data" }}
+    {{ outros_locais_labels|json_script:"outros_locais_labels" }}
+    {{ outros_locais_data|json_script:"outros_locais_data" }}
     {{ tipo_tarefa_grupo_labels|json_script:"tipo_tarefa_grupo_labels" }}
     {{ tipo_tarefa_grupo_data|json_script:"tipo_tarefa_grupo_data" }}
+    {{ tipo_tarefa_outros_labels|json_script:"tipo_tarefa_outros_labels" }}
+    {{ tipo_tarefa_outros_data|json_script:"tipo_tarefa_outros_data" }}
+    {{ tecnico_grupo_labels|json_script:"tecnico_grupo_labels" }}
+    {{ tecnico_grupo_data|json_script:"tecnico_grupo_data" }}
+    {{ tecnico_outros_labels|json_script:"tecnico_outros_labels" }}
+    {{ tecnico_outros_data|json_script:"tecnico_outros_data" }}
     {{ weekly_labels|json_script:"weekly_labels" }}
     {{ weekly_data_points|json_script:"weekly_data_points" }}
     {{ sla_atendimento_c0_data|json_script:"sla_atendimento_c0_data" }}
@@ -472,66 +267,128 @@
     {{ sla_resolucao_c2_data|json_script:"sla_resolucao_c2_data" }}
     {{ sla_parkshopping_data|json_script:"sla_parkshopping_data" }}
     {{ sla_cpfl_data|json_script:"sla_cpfl_data" }}
-    {{ tipo_tarefa_grupo_labels|json_script:"tipo_tarefa_grupo_labels" }}
-    {{ tipo_tarefa_grupo_data|json_script:"tipo_tarefa_grupo_data" }}
-    {{ tecnico_grupo_labels|json_script:"tecnico_grupo_labels" }}
-    {{ tecnico_grupo_data|json_script:"tecnico_grupo_data" }}
-    {{ weekly_labels|json_script:"weekly_labels" }}
 
     <script>
         Chart.register(ChartDataLabels);
         const getDjangoData = (id) => JSON.parse(document.getElementById(id).textContent);
+        
+        // INICIALIZAÇÃO DO MODAL
+        const tecnicoModal = new bootstrap.Modal(document.getElementById('tecnicoModal'));
 
-        // Chart com drilldown de Gerdau
+        function redirectToReport(tipo, categoria) {
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const url = `{% url 'resultado_relatorio' %}?tipo_relatorio=${tipo}&categoria=${encodeURIComponent(categoria)}&start_date=${startDate}&end_date=${endDate}`;
+            window.location.href = url;
+        }
+
+        //  CHART DE LOCAIS 
         const osPorLocalCtx = document.getElementById('osPorLocalChart');
         const aggregatedLabels = getDjangoData('local_agrupado_labels');
         const aggregatedData = getDjangoData('local_agrupado_data');
         const gerdauLabels = getDjangoData('gerdau_labels') || [];
         const gerdauData = getDjangoData('gerdau_data') || [];
+        const outrosLocaisLabels = getDjangoData('outros_locais_labels') || [];
+        const outrosLocaisData = getDjangoData('outros_locais_data') || [];
 
         const osPorLocalChart = new Chart(osPorLocalCtx, {
             type: 'bar',
             data: { labels: aggregatedLabels, datasets: [{ label: 'Total de OS', data: aggregatedData, backgroundColor: '#004aad' }] },
             options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                layout: { padding: { left: 150 } },
-                scales: { y: { ticks: { font: { size: 10 } } } },
-                plugins: { datalabels: { anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold' } } },
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: { y: { ticks: { font: { size: 10 } } } },
+                plugins: { datalabels: { anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold' } } }
             }
         });
 
-        // Click handler para drilldown em 'Gerdau'
         osPorLocalCtx.onclick = function(evt) {
             const points = osPorLocalChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
             if (!points.length) return;
             const idx = points[0].index;
             const label = osPorLocalChart.data.labels[idx];
+            
             if (label === 'Gerdau' && gerdauLabels.length) {
-                osPorLocalChart.data.labels = gerdauLabels;
-                osPorLocalChart.data.datasets[0].data = gerdauData;
-                osPorLocalChart.update();
-                document.getElementById('gerdau-back').style.display = 'block';
+                osPorLocalChart.data.labels = gerdauLabels; osPorLocalChart.data.datasets[0].data = gerdauData; osPorLocalChart.update();
+                const badge = document.getElementById('local-back-badge'); badge.innerText = 'Filtro: Gerdau'; document.getElementById('local-back').style.display = 'block';
+            } 
+            else if (label === 'Outros' && outrosLocaisLabels.length) {
+                osPorLocalChart.data.labels = outrosLocaisLabels; osPorLocalChart.data.datasets[0].data = outrosLocaisData; osPorLocalChart.update();
+                const badge = document.getElementById('local-back-badge'); badge.innerText = 'Filtro: Outros'; document.getElementById('local-back').style.display = 'block';
             }
+            else if (label === 'Gerdau Outros') { redirectToReport('locais_agrupados', label); }
         };
 
-        // Botão voltar para visão agregada
-        document.getElementById('gerdau-back-btn').onclick = function() {
-            osPorLocalChart.data.labels = aggregatedLabels;
-            osPorLocalChart.data.datasets[0].data = aggregatedData;
-            osPorLocalChart.update();
-            document.getElementById('gerdau-back').style.display = 'none';
+        document.getElementById('local-back-btn').onclick = function() {
+            osPorLocalChart.data.labels = aggregatedLabels; osPorLocalChart.data.datasets[0].data = aggregatedData; osPorLocalChart.update();
+            document.getElementById('local-back').style.display = 'none';
         };
 
+        // Charts Simples
         new Chart(document.getElementById('osPorStatusChart'), { type: 'pie', data: { labels: getDjangoData('status_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('status_data'), backgroundColor: ['#004aad', '#dc3545', '#17a2b8', '#fd7e14', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('osPorCriticidadeChart'), { type: 'bar', data: { labels: getDjangoData('criticidade_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('criticidade_data'), backgroundColor: '#004aad', }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { anchor: 'end', align: 'top', color: '#495057', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('osPorMesChart'), { type: 'line', data: { labels: getDjangoData('mes_labels'), datasets: [{ label: 'Nº de OS Criadas', data: getDjangoData('mes_data'), borderColor: '#fd7e14', tension: 0.1, fill: false }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { display: false } } } });
         new Chart(document.getElementById('osPorTicketChart'), { type: 'doughnut', data: { labels: getDjangoData('ticket_labels'), datasets: [{ label: 'Total de OS', data: getDjangoData('ticket_data'), backgroundColor: ['#fd7e14', '#004aad'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
-        new Chart(document.getElementById('TipoTarefasPorOSChart'), { type: 'pie', data: { labels: getDjangoData('tipo_tarefa_grupo_labels'), datasets: [{label: 'Total de Tarefas', data: getDjangoData('tipo_tarefa_grupo_data'), backgroundColor: ['#004aad', '#17a2b8', '#fd7e14', '#6f42c1', '#20c997', '#dc3545', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } }});
-        new Chart(document.getElementById('osPorTecnicoChart'), {type: 'bar', data: {labels: getDjangoData('tecnico_grupo_labels'), datasets: [{label: 'Total de OS', data: getDjangoData('tecnico_grupo_data'), backgroundColor: '#004aad',}]}, options: {indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: {y: {ticks: {font: { size: 10 } } } }, plugins: {datalabels: {anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold', size: 10 } } } } });
+        
+        //  GRÁFICO TIPO DE TAREFAS 
+        const tipoTarefasCtx = document.getElementById('TipoTarefasPorOSChart');
+        const tiposAggLabels = getDjangoData('tipo_tarefa_grupo_labels');
+        const tiposAggData = getDjangoData('tipo_tarefa_grupo_data');
+        const tiposOutrosLabels = getDjangoData('tipo_tarefa_outros_labels') || [];
+        const tiposOutrosData = getDjangoData('tipo_tarefa_outros_data') || [];
 
-        // GRÁFICOS MENORES 
+        const tipoTarefasChart = new Chart(tipoTarefasCtx, { 
+            type: 'pie', data: { labels: tiposAggLabels, datasets: [{ label: 'Total de Tarefas', data: tiposAggData, backgroundColor: ['#004aad', '#17a2b8', '#fd7e14', '#6f42c1', '#20c997', '#dc3545', '#6c757d'], }] }, 
+            options: { 
+                responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } },
+                onClick: function(evt, elements) {
+                    if (elements.length > 0) {
+                        const index = elements[0].index; const label = this.data.labels[index];
+                        if (label === 'Outros' && tiposOutrosLabels.length) {
+                             this.data.labels = tiposOutrosLabels; this.data.datasets[0].data = tiposOutrosData; this.update();
+                             document.getElementById('tipotarefa-back').style.display = 'block';
+                        }
+                        else if (label === 'Não Categorizado') { redirectToReport('tipo_tarefa_agrupados', label); }
+                    }
+                }
+            }
+        });
+        
+        document.getElementById('tipotarefa-back-btn').onclick = function() {
+            tipoTarefasChart.data.labels = tiposAggLabels; tipoTarefasChart.data.datasets[0].data = tiposAggData; tipoTarefasChart.update();
+            document.getElementById('tipotarefa-back').style.display = 'none';
+        };
+
+        //  GRÁFICO TÉCNICOS 
+        const tecnicoCtx = document.getElementById('osPorTecnicoChart');
+        const tecnicoAggLabels = getDjangoData('tecnico_grupo_labels');
+        const tecnicoAggData = getDjangoData('tecnico_grupo_data');
+        const tecnicoOutrosLabels = getDjangoData('tecnico_outros_labels') || [];
+        const tecnicoOutrosData = getDjangoData('tecnico_outros_data') || [];
+
+        const tecnicoChart = new Chart(tecnicoCtx, {
+            type: 'bar', data: { labels: tecnicoAggLabels, datasets: [{ label: 'Total de OS', data: tecnicoAggData, backgroundColor: '#004aad', }] }, 
+            options: {
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false, layout: { padding: { left: 150 } }, scales: {y: {ticks: {font: { size: 10 } } } }, 
+                plugins: { datalabels: {anchor: 'end', align: 'end', color: '#343a40', font: { weight: 'bold', size: 10 } } },
+                onClick: function(evt, elements) {
+                    if (elements.length > 0) {
+                        const index = elements[0].index; const label = this.data.labels[index];
+                        if (label === 'Outros' && tecnicoOutrosLabels.length) {
+                            this.data.labels = tecnicoOutrosLabels; this.data.datasets[0].data = tecnicoOutrosData; this.update();
+                            document.getElementById('tecnico-back').style.display = 'block';
+                        }
+                        else if (label === 'Não Mapeado') { redirectToReport('tecnico_agrupados', label); }
+                        else { abrirModalDetalhes(label); } 
+                    }
+                }
+            } 
+        });
+
+        document.getElementById('tecnico-back-btn').onclick = function() {
+            tecnicoChart.data.labels = tecnicoAggLabels; tecnicoChart.data.datasets[0].data = tecnicoAggData; tecnicoChart.update();
+            document.getElementById('tecnico-back').style.display = 'none';
+        };
+
+        // Outros Charts
         new Chart(document.getElementById('execucaoStatusChart'), { type: 'doughnut', data: { labels: getDjangoData('execucao_status_labels'), datasets: [{ label: 'Contagem de OS', data: getDjangoData('execucao_status_data'), backgroundColor: ['#004aad', '#fd7e14', '#6c757d'], }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: '#fff', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('slaAtendimentoChart'), { type: 'bar', data: { labels: ['C0 (3h)', 'C1 (12h)', 'C2 (24h)'], datasets: [ { label: 'SLA Atendido', data: [getDjangoData('sla_atendimento_c0_data').atendido, getDjangoData('sla_atendimento_c1_data').atendido, getDjangoData('sla_atendimento_c2_data').atendido], backgroundColor: '#004aad' }, { label: 'SLA Não Atendido', data: [getDjangoData('sla_atendimento_c0_data').nao_atendido, getDjangoData('sla_atendimento_c1_data').nao_atendido, getDjangoData('sla_atendimento_c2_data').nao_atendido], backgroundColor: '#fd7e14' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: 'white', font: { weight: 'bold' } } } } });
         new Chart(document.getElementById('slaResolucaoChart'), { type: 'bar', data: { labels: ['C0 (8h)', 'C1 (24h)', 'C2 (48h)'], datasets: [ { label: 'SLA Atendido', data: [getDjangoData('sla_resolucao_c0_data').atendido, getDjangoData('sla_resolucao_c1_data').atendido, getDjangoData('sla_resolucao_c2_data').atendido], backgroundColor: '#004aad' }, { label: 'SLA Não Atendido', data: [getDjangoData('sla_resolucao_c0_data').nao_atendido, getDjangoData('sla_resolucao_c1_data').nao_atendido, getDjangoData('sla_resolucao_c2_data').nao_atendido], backgroundColor: '#fd7e14' } ] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { color: 'white', font: { weight: 'bold' } } } } });
@@ -540,6 +397,68 @@
 
         const weeklyChartCanvas = document.getElementById('weeklyOsChart');
         if (weeklyChartCanvas) { new Chart(weeklyChartCanvas, { type: 'line', data: { labels: getDjangoData('weekly_labels'), datasets: [{ label: 'Nº de OS Criadas na Semana', data: getDjangoData('weekly_data_points'), borderColor: '#004aad', backgroundColor: 'rgba(32, 201, 151, 0.1)', fill: true, tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { datalabels: { display: false } } } }); }
+
+        //  FUNÇÃO DO MODAL 
+        async function abrirModalDetalhes(tecnicoNome) {
+            document.getElementById('modalTecnicoTitulo').innerText = tecnicoNome;
+            
+            const tbody = document.querySelector('#tabelaDetalhesTecnico tbody');
+            tbody.innerHTML = '';
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('msgVazio').style.display = 'none';
+            
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            const localGrupo = document.getElementById('local_grupo').value;
+
+            tecnicoModal.show(); 
+
+            try {
+                const baseUrl = "{% url 'api_detalhes_tecnico' %}";
+                const response = await fetch(`${baseUrl}?tecnico=${encodeURIComponent(tecnicoNome)}&start_date=${startDate}&end_date=${endDate}&local_grupo=${encodeURIComponent(localGrupo)}`);
+                const data = await response.json();
+
+                document.getElementById('loadingSpinner').style.display = 'none';
+
+                if (data.dados.length === 0) {
+                    document.getElementById('msgVazio').style.display = 'block';
+                    return;
+                }
+
+                data.dados.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="fw-bold text-primary align-middle">${row.os}</td>
+                        <td class="align-middle"><span class="badge ${getStatusColor(row.status)}">${row.status}</span></td>
+                        <td class="align-middle">${row.cliente}</td>
+                        
+                        <td class="align-middle">${row.ativo}</td>
+                        
+                        <td class="small align-middle" style="white-space: pre-wrap;">${row.descricao}</td>
+                        
+                        <td class="small align-middle">${row.tecnicos}</td>
+                        <td class="small align-middle">${row.tipo_tarefa}</td>
+                        
+                        <td class="text-nowrap align-middle">${row.tempo_atendimento}</td>
+                        <td class="text-nowrap align-middle">${row.tempo_resolucao}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+            } catch (error) {
+                console.error('Erro ao carregar detalhes:', error);
+                document.getElementById('loadingSpinner').style.display = 'none';
+                tbody.innerHTML = '<tr><td colspan="11" class="text-danger text-center">Erro ao carregar dados.</td></tr>';
+            }
+        }
+
+        function getStatusColor(status) {
+            if (status === 'Concluído') return 'bg-success';
+            if (status === 'Em Processo') return 'bg-info';
+            if (status === 'Em Verificação') return 'bg-warning text-dark';
+            if (status === 'Cancelado') return 'bg-danger';
+            return 'bg-secondary';
+        }
     </script>
 </body>
 </html>

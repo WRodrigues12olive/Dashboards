@@ -7,63 +7,63 @@
     <title>Resultado do Relatório</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .table th, .table td {
-            white-space: nowrap !important;
-            vertical-align: middle;
-            padding: 0.75rem 1rem;
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden; 
+        }
+
+        .container-fluid {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: 15px; 
+        }
+
+        .card {
+            flex: 1; 
+            overflow: hidden; 
+            display: flex; 
+            flex-direction: column;
+            margin-bottom: 0;
+        }
+
+        .card-body {
+            flex: 1; 
+            padding: 0;
+            overflow: hidden;
+            position: relative; 
         }
 
         .custom-scroll {
-            max-height: 75vh; 
-            
-            overflow: auto; 
-            
             width: 100%;
-            border: 1px solid #dee2e6;
-            background-color: #fff;
-            position: relative; 
+            height: 100%; 
+            overflow: auto; 
+        }
+
+        .table th, .table td {
+            vertical-align: middle;
+            padding: 0.75rem 1rem;
         }
 
         .table thead th {
             position: sticky;
             top: 0;
-            z-index: 2; 
-            box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.4); 
+            z-index: 10;
+            box-shadow: 0 2px 2px -1px rgba(0, 0, 0, 0.4);
         }
         
         .table-dark th {
-            border-color: #373b3e; 
-            background-color: #212529; 
+            border-color: #373b3e;
+            background-color: #212529;
         }
 
-        .custom-scroll::-webkit-scrollbar {
-            width: 15px;  
-            height: 18px; 
-        }
-
-        .custom-scroll::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-
-        .custom-scroll::-webkit-scrollbar-thumb {
-            background-color: #6c757d; 
-            border-radius: 8px;
-            border: 3px solid #f1f1f1;
-        }
-
-        .custom-scroll::-webkit-scrollbar-thumb:hover {
-            background-color: #495057;
-            cursor: pointer;
-        }
-        
-        .custom-scroll::-webkit-scrollbar-corner {
-            background: #f1f1f1;
-        }
-
-        .custom-scroll {
-            scrollbar-width: auto;
-            scrollbar-color: #6c757d #f1f1f1;
-        }
+        .custom-scroll::-webkit-scrollbar { width: 15px; height: 18px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #6c757d; border-radius: 8px; border: 3px solid #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background-color: #495057; cursor: pointer; }
+        .custom-scroll::-webkit-scrollbar-corner { background: #f1f1f1; }
+        .custom-scroll { scrollbar-width: auto; scrollbar-color: #6c757d #f1f1f1; }
     </style>
 </head>
 <body class="bg-light">
@@ -74,7 +74,7 @@
                 <p class="lead mb-0">
                     Exibindo <strong>{{ total }}</strong> Ordens de Serviço.
                 </p>
-                <small class="text-muted">Use as barras de rolagem cinzas (direita e inferior) para navegar.</small>
+                <small class="text-muted">A tabela possui rolagem interna horizontal e vertical.</small>
             </div>
             <a href="{% url 'extracao_relatorios' %}" class="btn btn-secondary">Voltar</a>
         </div>
@@ -87,30 +87,30 @@
                     <table class="table table-striped table-hover table-bordered mb-0">
                         <thead class="table-dark">
                             <tr>
-                                <th>OS</th>
-                                <th>Status</th>
-                                <th>Cliente</th>
-                                <th>Técnico Responsável</th>
+                                <th style="min-width: 90px;">OS</th>
+                                <th style="min-width: 120px;">Status</th>
+                                <th style="min-width: 150px;">Cliente</th>
+                                <th style="min-width: 180px;">Técnico Responsável</th>
                                 
-                                <th>Ativo</th>
+                                <th style="min-width: 250px;">Ativo</th>
                                 
-                                <th>Tipo de Tarefa</th>
+                                <th style="min-width: 150px;">Tipo de Tarefa</th>
 
-                                <th>Descrição da OS</th>
+                                <th style="min-width: 350px;">Descrição da OS</th>
                                 
-                                <th>Descrição do Tipo</th>
-                                <th>Descrição da Causa</th>
-                                <th>Método de Detecção</th>
+                                <th style="min-width: 200px;">Descrição do Tipo</th>
+                                <th style="min-width: 200px;">Descrição da Causa</th>
+                                <th style="min-width: 200px;">Método de Detecção</th>
 
-                                <th>Data Criação</th>
-                                <th>Data Início</th>
-                                <th>Data Conclusão Técnica</th>
-                                <th>Data Finalização</th>
+                                <th class="text-nowrap">Data Criação</th>
+                                <th class="text-nowrap">Data Início</th>
+                                <th class="text-nowrap">Data Conclusão Técnica</th>
+                                <th class="text-nowrap">Data Finalização</th>
                                 <th>Avanço (%)</th>
 
-                                <th>Tempo de Atendimento</th>
-                                <th>Tempo em Execução</th>
-                                <th>Tempo em Verificação</th>
+                                <th class="text-nowrap">Tempo de Atendimento</th>
+                                <th class="text-nowrap">Tempo em Execução</th>
+                                <th class="text-nowrap">Tempo em Verificação</th>
 
                                 <th>SLA Atendido</th>
                                 <th>SLA Violado</th>
@@ -119,30 +119,30 @@
                         <tbody>
                             {% for row in linhas %}
                             <tr>
-                                <td>{{ row.OS }}</td>
+                                <td class="fw-bold">{{ row.OS }}</td>
                                 <td>{{ row.Status }}</td>
                                 <td>{{ row.Cliente }}</td>
                                 <td>{{ row.Tecnico_Responsavel }}</td>
                                 
-                                <td title="{{ row.Ativo }}">{{ row.Ativo|default:"-"|truncatechars:30 }}</td>
+                                <td>{{ row.Ativo|default:"-" }}</td>
                                 
                                 <td>{{ row.Tipo_de_Tarefa }}</td>
 
-                                <td title="{{ row.Descricao_OS }}">{{ row.Descricao_OS|default:"-"|truncatechars:50 }}</td>
+                                <td style="white-space: pre-wrap;">{{ row.Descricao_OS|default:"-" }}</td>
 
-                                <td title="{{ row.Descricao_Tipo }}">{{ row.Descricao_Tipo|default:"-"|truncatechars:50 }}</td>
-                                <td title="{{ row.Descricao_Causa }}">{{ row.Descricao_Causa|default:"-"|truncatechars:50 }}</td>
-                                <td title="{{ row.Metodo_Deteccao }}">{{ row.Metodo_Deteccao|default:"-"|truncatechars:50 }}</td>
+                                <td style="white-space: pre-wrap;">{{ row.Descricao_Tipo|default:"-" }}</td>
+                                <td style="white-space: pre-wrap;">{{ row.Descricao_Causa|default:"-" }}</td>
+                                <td style="white-space: pre-wrap;">{{ row.Metodo_Deteccao|default:"-" }}</td>
 
-                                <td>{{ row.Data_Criacao }}</td>
-                                <td>{{ row.Data_Inicio }}</td>
-                                <td>{{ row.Data_Conclusao_Tecnica }}</td>
-                                <td>{{ row.Data_Finalizacao }}</td>
+                                <td class="text-nowrap">{{ row.Data_Criacao }}</td>
+                                <td class="text-nowrap">{{ row.Data_Inicio }}</td>
+                                <td class="text-nowrap">{{ row.Data_Conclusao_Tecnica }}</td>
+                                <td class="text-nowrap">{{ row.Data_Finalizacao }}</td>
                                 <td>{{ row.Avanco_pct }}%</td>
 
-                                <td class="fw-bold text-primary">{{ row.Tempo_de_Atendimento }}</td>
-                                <td>{{ row.Tempo_em_Execucao }}</td>
-                                <td>{{ row.Tempo_em_Verificacao }}</td>
+                                <td class="text-nowrap fw-bold text-primary">{{ row.Tempo_de_Atendimento }}</td>
+                                <td class="text-nowrap">{{ row.Tempo_em_Execucao }}</td>
+                                <td class="text-nowrap">{{ row.Tempo_em_Verificacao }}</td>
 
                                 <td>
                                     {% if row.SLA_Atendido == "Sim" %}
@@ -168,7 +168,8 @@
                             {% endfor %}
                         </tbody>
                     </table>
-                </div> </div>
+                </div> 
+            </div>
         </div>
         <br><br>
     </div>
